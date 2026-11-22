@@ -1,5 +1,31 @@
 {
+  "redirects": [
+    {
+      "source": "/programs",
+      "destination": "/career-paths",
+      "permanent": true
+    },
+    {
+      "source": "/programs/",
+      "destination": "/career-paths",
+      "permanent": true
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(admin|admin/.*|dashboard|dashboard/.*|profile|settings|payment|auth|employer-login|employer-dashboard|employer/.*|jobs|team|team-invite/.*|analytics)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    }
+  ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

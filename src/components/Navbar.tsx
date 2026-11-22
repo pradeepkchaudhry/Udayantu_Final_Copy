@@ -140,15 +140,36 @@ export const Navbar = () => {
   };
 
   const navLinks = [
-    { label: "Programs", action: () => scrollToSection("roles"), sectionId: "roles" },
-    { label: "Success Stories", action: () => scrollToSection("placements"), sectionId: "placements" },
-    { label: "About", action: () => navigate("/about"), sectionId: "about" },
-    { label: "Blog", action: () => navigate("/blog"), sectionId: "blog" },
+    { label: "Career Guides", to: "/careers-after-graduation", sectionId: "career-guides" },
+    { label: "Career Paths", to: "/career-paths", sectionId: "career-paths" },
+    { label: "Assessment", to: "/career-assessment", sectionId: "career-assessment" },
+    { label: "Placement", to: "/placement-support", sectionId: "placement-support" },
+    { label: "About", to: "/about", sectionId: "about" },
+    { label: "Blog", to: "/blog", sectionId: "blog" },
   ];
 
   const isLinkActive = (sectionId: string) => {
+    if (sectionId === "career-guides") {
+      return (
+        location.pathname === "/careers-after-graduation" ||
+        location.pathname.startsWith("/jobs-after-") ||
+        location.pathname === "/career-guidance"
+      );
+    }
+    if (sectionId === "career-paths") {
+      return location.pathname.startsWith("/career-paths");
+    }
+    if (sectionId === "career-assessment") {
+      return location.pathname === "/career-assessment";
+    }
+    if (sectionId === "placement-support") {
+      return (
+        location.pathname === "/placement-support" ||
+        location.pathname === "/student-success-stories"
+      );
+    }
     if (sectionId === "blog") {
-      return location.pathname === "/blog";
+      return location.pathname.startsWith("/blog");
     }
     if (sectionId === "about") {
       return location.pathname === "/about";
@@ -161,37 +182,37 @@ export const Navbar = () => {
 
   return (
     <>
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      <nav aria-label="Primary Navigation" className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         isScrolled 
           ? "bg-background/98 backdrop-blur-xl shadow-lg shadow-foreground/5 border-b border-border/60" 
-          : "bg-background/80 backdrop-blur-md border-b border-border/20"
+          : "bg-background/90 backdrop-blur-md border-b border-border/30"
       }`}>
         <div className="container mx-auto px-4 lg:px-6">
           <div className="flex items-center justify-between h-16 sm:h-18 md:h-20">
-            {/* Logo */}
-            <button 
-              onClick={() => navigate("/")}
+            {/* Logo — Crawlable Link */}
+            <Link 
+              to="/"
               className="hover:opacity-90 transition-all duration-300 hover:scale-[1.02] flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
               aria-label="UdaYantu Home"
               data-testid="button-navbar-logo"
             >
               <img 
                 src={logoImage} 
-                alt="UdaYantu - Professional Upskilling Programs" 
+                alt="UdaYantu - Career Training for Graduates in India" 
                 width={140}
                 height={56}
                 className="h-10 sm:h-11 md:h-12 lg:h-14 w-auto object-contain"
                 data-testid="img-navbar-logo"
               />
-            </button>
+            </Link>
             
-            {/* Navigation Links - Hidden on mobile */}
+            {/* Navigation Links - Crawlable Links on desktop */}
             <div className="hidden lg:flex items-center gap-1">
               {navLinks.map((link) => (
-                <button
+                <Link
                   key={link.label}
-                  onClick={link.action}
-                  className={`font-medium text-sm px-4 py-2.5 rounded-lg transition-all duration-200 relative group ${
+                  to={link.to}
+                  className={`font-medium text-sm px-3 py-2.5 rounded-lg transition-all duration-200 relative group whitespace-nowrap ${
                     isLinkActive(link.sectionId)
                       ? "text-primary bg-primary/10"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -199,28 +220,29 @@ export const Navbar = () => {
                   data-testid={`button-navbar-${link.label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
                   {link.label}
-                  {/* Active indicator */}
                   {isLinkActive(link.sectionId) && (
                     <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-primary rounded-full" />
                   )}
-                </button>
+                </Link>
               ))}
             </div>
 
             {/* Right side actions */}
             <div className="flex items-center gap-2 lg:gap-3">
-              {/* For Employers CTA - Only show when user is NOT authenticated */}
+              {/* For Employers CTA - Crawlable Link */}
               {!user && (
                 <Button
+                  asChild
                   size="sm"
                   variant="outline"
-                  onClick={() => navigate("/employers")}
-                  className="hidden md:inline-flex border-secondary/50 text-secondary hover:bg-secondary hover:text-secondary-foreground font-medium text-sm px-4 gap-2 transition-all duration-200"
+                  className="hidden md:inline-flex border-secondary/50 text-secondary hover:bg-secondary hover:text-secondary-foreground font-medium text-sm px-3.5 gap-1.5 transition-all duration-200"
                   data-testid="button-navbar-for-employers"
                 >
-                  <Building2 className="w-4 h-4" />
-                  <span className="hidden xl:inline">For Employers</span>
-                  <span className="xl:hidden">Employers</span>
+                  <Link to="/employers">
+                    <Building2 className="w-4 h-4" />
+                    <span className="hidden xl:inline">For Employers</span>
+                    <span className="xl:hidden">Employers</span>
+                  </Link>
                 </Button>
               )}
 

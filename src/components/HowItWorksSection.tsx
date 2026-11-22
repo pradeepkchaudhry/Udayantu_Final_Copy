@@ -29,14 +29,14 @@ const steps = [
   {
     icon: Award,
     number: "04",
-    title: "Get Certified",
-    description: "Earn government-recognized certification proving your expertise",
+    title: "Build Your Portfolio & Certificate",
+    description: "Complete real-world assignments, ATS resume reviews, and earn your UdaYantu completion certificate",
   },
   {
     icon: Briefcase,
     number: "05",
-    title: "Land Your Job",
-    description: "We guarantee placement with our hiring partners or full refund",
+    title: "Prepare & Interview",
+    description: "Clear mock interviews and receive dedicated placement assistance backed by our written refund policy",
   },
 ];
 

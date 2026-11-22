@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useGA4 } from "@/hooks/useGA4";
 import { Navbar } from "@/components/Navbar";
+import { SEOHead } from "@/components/SEOHead";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -579,6 +580,11 @@ export default function Payment() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+      <SEOHead
+        title="Enrollment Payment | UdaYantu"
+        description="Private enrollment checkout page for UdaYantu students."
+        noIndex={true}
+      />
       <div className="absolute top-20 right-4 z-20">
         <button
           onClick={() => setLanguage(language === "en" ? "hi" : "en")}

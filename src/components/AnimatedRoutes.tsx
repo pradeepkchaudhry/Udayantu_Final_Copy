@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { lazy, Suspense, memo, useState, useEffect, createContext, useContext } from "react";
 import { AnimatePresence } from "framer-motion";
 import PageTransition from "./PageTransition";
@@ -60,6 +60,14 @@ const Analytics = lazy(() => import("../pages/employer/Analytics"));
 const OutcomesDashboard = lazy(() => import("../pages/employer/OutcomesDashboard"));
 const TalentPool = lazy(() => import("../pages/employer/TalentPool"));
 const CompliancePanel = lazy(() => import("../pages/admin/CompliancePanel"));
+const CareersAfterGraduation = lazy(() => import("../pages/seo/CareersAfterGraduation"));
+const DegreeGuidePage = lazy(() => import("../pages/seo/DegreeGuidePage"));
+const CareerPathsHub = lazy(() => import("../pages/seo/CareerPathsHub"));
+const CareerPathDetailPage = lazy(() => import("../pages/seo/CareerPathDetailPage"));
+const CareerAssessmentPage = lazy(() => import("../pages/seo/CareerAssessmentPage"));
+const PlacementSupportPage = lazy(() => import("../pages/seo/PlacementSupportPage"));
+const StudentSuccessStoriesPage = lazy(() => import("../pages/seo/StudentSuccessStoriesPage"));
+const CareerGuidancePage = lazy(() => import("../pages/seo/CareerGuidancePage"));
 const NotFound = lazy(() => import("../pages/NotFound"));
 
 const PageLoader = memo(() => (
@@ -123,6 +131,24 @@ const RoutesContent = memo(() => {
       <Route path="/analytics" element={<Suspense fallback={<PageLoader />}><WithTransition><Analytics /></WithTransition></Suspense>} />
       <Route path="/jobs" element={<Suspense fallback={<PageLoader />}><WithTransition><JobsManagement /></WithTransition></Suspense>} />
       <Route path="/team" element={<Suspense fallback={<PageLoader />}><WithTransition><TeamManagement /></WithTransition></Suspense>} />
+      {/* Public SEO Architecture — Graduate Hub, Degree Guides, Career Tracks, Assessment & Trust Pages */}
+      <Route path="/careers-after-graduation" element={<Suspense fallback={<PageLoader />}><WithTransition><CareersAfterGraduation /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-ba" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="ba" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-bcom" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="bcom" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-bsc" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="bsc" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-bba" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="bba" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-bca" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="bca" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-ma" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="ma" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-mcom" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="mcom" /></WithTransition></Suspense>} />
+      <Route path="/jobs-after-msc" element={<Suspense fallback={<PageLoader />}><WithTransition><DegreeGuidePage degreeSlug="msc" /></WithTransition></Suspense>} />
+      <Route path="/career-paths" element={<Suspense fallback={<PageLoader />}><WithTransition><CareerPathsHub /></WithTransition></Suspense>} />
+      <Route path="/career-paths/:slug" element={<Suspense fallback={<PageLoader />}><WithTransition><CareerPathDetailPage /></WithTransition></Suspense>} />
+      <Route path="/programs" element={<Navigate to="/career-paths" replace />} />
+      <Route path="/career-assessment" element={<Suspense fallback={<PageLoader />}><WithTransition><CareerAssessmentPage /></WithTransition></Suspense>} />
+      <Route path="/placement-support" element={<Suspense fallback={<PageLoader />}><WithTransition><PlacementSupportPage /></WithTransition></Suspense>} />
+      <Route path="/student-success-stories" element={<Suspense fallback={<PageLoader />}><WithTransition><StudentSuccessStoriesPage /></WithTransition></Suspense>} />
+      <Route path="/career-guidance" element={<Suspense fallback={<PageLoader />}><WithTransition><CareerGuidancePage /></WithTransition></Suspense>} />
+
       <Route path="/team-invite/:token" element={<Suspense fallback={<PageLoader />}><WithTransition><TeamInviteAccept /></WithTransition></Suspense>} />
       <Route path="*" element={<Suspense fallback={<PageLoader />}><WithTransition><NotFound /></WithTransition></Suspense>} />
     </Routes>

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Navbar } from "@/components/Navbar";
+import { SEOHead } from "@/components/SEOHead";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -199,6 +200,7 @@ export default function Settings() {
   if (loading) {
     return (
       <>
+        <SEOHead title="Account Settings | UdaYantu" description="Private account settings page." noIndex={true} />
         <Navbar />
         <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 pt-24 pb-16">
           <div className="container mx-auto px-4 max-w-3xl">
@@ -214,6 +216,7 @@ export default function Settings() {
 
   return (
     <>
+      <SEOHead title="Account Settings | UdaYantu" description="Private account settings page." noIndex={true} />
       <Navbar />
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 pt-24 pb-16">
         <div className="container mx-auto px-4 max-w-3xl">

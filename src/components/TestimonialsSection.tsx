@@ -1,9 +1,10 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
-import { Quote, Linkedin, TrendingUp, Star } from "lucide-react";
+import { Quote, ArrowRight, Star, GraduationCap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Autoplay from "embla-carousel-autoplay";
 import { memo, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { LazyImage } from "./LazyImage";
 
 // Import images statically but render lazily
@@ -159,15 +160,13 @@ const TestimonialCard = memo(({ testimonial, index }: { testimonial: typeof test
             "{testimonial.quote}"
           </p>
           
-          {/* Salary Comparison Badge */}
-          {testimonial.beforeSalary && (
-            <div className="mb-5">
-              <Badge className="bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/15 px-3 py-1.5">
-                <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
-                <span className="font-medium">{testimonial.beforeSalary} → {testimonial.ctc}</span>
-              </Badge>
-            </div>
-          )}
+          {/* Focus Track Badge */}
+          <div className="mb-5">
+            <Badge className="bg-primary/10 text-primary border border-primary/20 px-3 py-1.5">
+              <GraduationCap className="w-3.5 h-3.5 mr-1.5" />
+              <span className="font-medium">Career Track: {testimonial.role}</span>
+            </Badge>
+          </div>
           
           <div className="flex items-start gap-4 pt-5 border-t border-border">
             <div className="relative flex-shrink-0">
@@ -177,15 +176,10 @@ const TestimonialCard = memo(({ testimonial, index }: { testimonial: typeof test
                 className="w-14 h-14 rounded-xl object-cover border-2 border-primary/20 shadow-md"
                 placeholderClassName="w-14 h-14 rounded-xl"
               />
-              {testimonial.hasLinkedIn && (
-                <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 bg-[#0A66C2] rounded-lg flex items-center justify-center border-2 border-background shadow-sm">
-                  <Linkedin className="w-3 h-3 text-white" />
-                </div>
-              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-foreground text-base truncate">{testimonial.name}</p>
-              <p className="text-sm text-primary font-medium">{testimonial.role} • {testimonial.ctc}</p>
+              <p className="text-sm text-primary font-medium">{testimonial.role}</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">{testimonial.location}</p>
             </div>
           </div>
@@ -217,13 +211,13 @@ export const TestimonialsSection = memo(() => {
         <div className="text-center mb-12 md:mb-16">
           <Badge variant="secondary" className="mb-4 text-sm font-semibold px-4 py-2">
             <Star className="w-4 h-4 mr-2 fill-current" />
-            Real Success Stories
+            Learner Journeys
           </Badge>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 text-foreground">
-            They Rose Up—<span className="text-primary">So Can You</span>
+            From Small-Town Degrees to <span className="text-primary">Career Readiness</span>
           </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Real students, real success stories from rural and Tier 3-4 backgrounds
+          <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto">
+            Stories of graduates building practical skills, interview confidence, and corporate readiness across rural and Tier 2–4 India. Individual outcomes vary by effort, skills, and hiring conditions.
           </p>
         </div>
 
@@ -243,6 +237,16 @@ export const TestimonialsSection = memo(() => {
           <CarouselPrevious className="hidden md:flex -left-4 lg:-left-6 h-12 w-12 border-2 border-border bg-background hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-lg" />
           <CarouselNext className="hidden md:flex -right-4 lg:-right-6 h-12 w-12 border-2 border-border bg-background hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-lg" />
         </Carousel>
+
+        <div className="text-center mt-10">
+          <Link
+            to="/student-success-stories"
+            className="inline-flex items-center gap-2 text-sm md:text-base font-semibold text-primary hover:underline"
+          >
+            Read How Graduates Transition Into Corporate Roles
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
       </div>
     </section>
   );

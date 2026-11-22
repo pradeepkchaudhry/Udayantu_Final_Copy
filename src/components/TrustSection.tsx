@@ -3,35 +3,8 @@ import { Shield, TrendingUp, Building2, MapPin, Target, GitBranch, Award, Lock, 
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { AuthModal } from "./AuthModal";
-import { useCounterAnimation, parseNumberString } from "@/hooks/useCounterAnimation";
 import { motion } from "framer-motion";
 
-const PlacementStatItem = ({ 
-  icon: Icon, 
-  value, 
-  label 
-}: { 
-  icon: typeof TrendingUp; 
-  value: string; 
-  label: string;
-}) => {
-  const { number: targetNumber, prefix, suffix, decimals } = parseNumberString(value);
-  const { ref, displayValue } = useCounterAnimation({
-    end: targetNumber,
-    duration: 2500,
-    decimals,
-    prefix,
-    suffix,
-  });
-
-  return (
-    <div ref={ref} className="text-center p-6 bg-primary/5 rounded-xl">
-      <Icon className="w-10 h-10 text-secondary mx-auto mb-3" />
-      <p className="text-3xl font-bold text-primary mb-2">{displayValue}</p>
-      <p className="text-sm text-muted-foreground">{label}</p>
-    </div>
-  );
-};
 
 interface TrustCardProps {
   icon: typeof Target;
@@ -83,34 +56,34 @@ const TrustCard = ({ icon: Icon, title, hindiText, description, index }: TrustCa
 const trustCards = [
   {
     icon: Target,
-    title: "Job or Your Fee Back",
-    hindiText: "नॉकरी नहीं मिली, तो रजिस्ट्रेशन फीस भी वापस।",
-    description: <>Finish the program, don't get placed? We refund your fees in full. <strong className="text-foreground">No hidden clauses. Period.</strong></>
+    title: "Written Refund Protection",
+    hindiText: "स्पष्ट और लिखित रिफंड पॉलिसी — कोई छिपी शर्त नहीं।",
+    description: <>Complete all 15-week coursework, maintain 90% attendance, and participate in interviews—unplaced within 90 days? <strong className="text-foreground">Request a written refund review.</strong></>
   },
   {
     icon: GitBranch,
-    title: "Placement Pathway for All",
-    description: <>We partner with top national employers in Tier 1-3 cities who specifically want graduates from <em>every</em> city and village. <strong className="text-foreground">We focus on getting you a start.</strong></>
+    title: "Career Pathways for Every Stream",
+    description: <>Built for BA, B.Com, B.Sc, BBA, BCA, MA, M.Com, and M.Sc graduates from rural and Tier 2–4 towns. <strong className="text-foreground">Practical skills matter more than college tier.</strong></>
   },
   {
     icon: Award,
-    title: "Certification Employers Trust",
-    description: <>UdaYantu is officially recognized. Your certificate closes the gap between your degree and a good, respected job. <strong className="text-foreground">Built for high-demand, practical skills.</strong></>
+    title: "Portfolio-Backed Completion Certificate",
+    description: <>Graduate with real workplace assignments, CRM/Excel deliverables, and an UdaYantu completion certificate. <strong className="text-foreground">Built for practical hiring interviews.</strong></>
   },
   {
     icon: Lock,
-    title: "Secure & Built for You",
-    description: <>Personalized coaching, flexible schedules, and 1:1 career guidance—<strong className="text-foreground">built specifically for students from small towns.</strong> Your data is safe and never sold.</>
+    title: "Secure & Student-First",
+    description: <>Personalized coaching, bilingual support, and 1:1 career guidance—<strong className="text-foreground">designed specifically for students from small towns.</strong> Your data is safe and never sold.</>
   },
   {
     icon: Home,
-    title: "Mentors Who Understand",
-    description: <>Get guidance from mentors who know exactly where you've come from. <strong className="text-foreground">No need to relocate to start learning.</strong> Close the distance between your home and a great career.</>
+    title: "Mentors Who Understand Your Journey",
+    description: <>Learn online from your hometown without costly relocation upfront. <strong className="text-foreground">Bridge the gap between your hometown and corporate readiness.</strong></>
   },
   {
     icon: Shield,
     title: "Transparent & Fair Process",
-    description: <>No surprises, no hidden fees. Every step from enrollment to placement is clear, documented, and <strong className="text-foreground">designed to respect your time and trust.</strong></>
+    description: <>No hollow promises, no hidden fees. Every eligibility rule and curriculum milestone is <strong className="text-foreground">documented clearly before enrollment.</strong></>
   }
 ];
 
@@ -137,7 +110,7 @@ export const TrustSection = () => {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="text-center text-lg text-muted-foreground max-w-4xl mx-auto mb-14 leading-relaxed"
         >
-          While others compete for talent from IITs and metro cities, <strong className="text-foreground">UdaYantu is the <em>only</em> company building career pathways</strong> for B.A., B.Sc., B.Com., M.A., and M.Com. graduates from our villages and Tier 4–5 towns. From your college to a career in a national company—we'll get you there, <strong className="text-foreground">together</strong>.
+          While most platforms focus only on engineering colleges and metro cities, <strong className="text-foreground">UdaYantu builds structured corporate pathways</strong> for BA, B.Com, B.Sc, BBA, BCA, MA, M.Com, and M.Sc graduates from rural India and Tier 2–4 towns.
         </motion.p>
 
         {/* 3x2 Grid for balanced layout */}
@@ -166,7 +139,7 @@ export const TrustSection = () => {
             className="text-base md:text-lg px-6 md:px-8 py-6 bg-secondary hover:bg-secondary/90 text-secondary-foreground font-bold max-w-full shadow-lg shadow-secondary/20 hover:shadow-xl hover:shadow-secondary/30 transition-all duration-300"
             onClick={() => setShowRegistration(true)}
           >
-            ⚡ Start Your New Career. Get Job Ready Now.
+            Start Your Career Assessment &amp; Registration
           </Button>
         </motion.div>
 
@@ -178,36 +151,36 @@ export const TrustSection = () => {
           className="bg-card rounded-2xl p-8 md:p-12 border border-border/40 shadow-sm"
         >
           <h3 className="text-2xl md:text-3xl font-bold text-center mb-8 text-primary">
-            Placement Results
+            Verified Programme Pillars
           </h3>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <PlacementStatItem
-              icon={TrendingUp}
-              value="81%"
-              label="Placement Rate within 120 days"
-            />
-            <PlacementStatItem
-              icon={Building2}
-              value="25+"
-              label="Major Employer Partners (MSMEs, tech startups, NGOs)"
-            />
-            <PlacementStatItem
-              icon={Shield}
-              value="₹4.83 LPA"
-              label="Average Salary Offered"
-            />
-            <PlacementStatItem
-              icon={MapPin}
-              value="50+"
-              label="Cities/Towns Placed In across India"
-            />
+            <div className="text-center p-6 bg-primary/5 rounded-xl">
+              <TrendingUp className="w-10 h-10 text-secondary mx-auto mb-3" />
+              <p className="text-3xl font-bold text-primary mb-2">8 Tracks</p>
+              <p className="text-sm text-muted-foreground">Structured non-technical career paths</p>
+            </div>
+            <div className="text-center p-6 bg-primary/5 rounded-xl">
+              <Building2 className="w-10 h-10 text-secondary mx-auto mb-3" />
+              <p className="text-3xl font-bold text-primary mb-2">15 Weeks</p>
+              <p className="text-sm text-muted-foreground">Guided projects, tools &amp; mock interviews</p>
+            </div>
+            <div className="text-center p-6 bg-primary/5 rounded-xl">
+              <Shield className="w-10 h-10 text-secondary mx-auto mb-3" />
+              <p className="text-3xl font-bold text-primary mb-2">90 Days</p>
+              <p className="text-sm text-muted-foreground">Post-completion placement support window</p>
+            </div>
+            <div className="text-center p-6 bg-primary/5 rounded-xl">
+              <MapPin className="w-10 h-10 text-secondary mx-auto mb-3" />
+              <p className="text-3xl font-bold text-primary mb-2">Pan-India</p>
+              <p className="text-sm text-muted-foreground">Online access for rural &amp; Tier 2–4 towns</p>
+            </div>
           </div>
 
           <div className="mt-8 text-center p-6 bg-secondary/5 rounded-xl border border-secondary/10">
             <Shield className="w-12 h-12 text-secondary mx-auto mb-3" />
             <p className="text-lg font-semibold text-primary">
-              100% of refunds honored on eligible, confirmed cases
+              Clear, written placement-support and refund eligibility terms published before enrollment
             </p>
           </div>
         </motion.div>

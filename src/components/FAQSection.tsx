@@ -11,35 +11,35 @@ import { memo } from "react";
 const faqs = [
   {
     question: "Who is eligible to apply?",
-    answer: "Final year students & fresh graduates."
+    answer: "Final-year students and fresh graduates across India—especially from rural areas and Tier 2, Tier 3, and Tier 4 towns—who are ready to commit to 15 weeks of structured practical training."
   },
   {
     question: "Which degrees are accepted?",
-    answer: "B.A, B.Sc, B.Com, M.A, M.Sc, M.Com, and other non-technical."
+    answer: "BA, B.Com, B.Sc, BBA, BCA, MA, M.Com, M.Sc, and other eligible graduate streams."
   },
   {
-    question: "Is English compulsory?",
-    answer: "No, we teach basics as per role."
+    question: "Is fluent English compulsory before joining?",
+    answer: "No. We start with bilingual guidance (Hindi + English) and help you build practical workplace English, email writing, and interview clarity during the 15-week track."
   },
   {
-    question: "The Registration fee is full fee of program?",
-    answer: "No, it's just the registration/slot booking fee (refundable if not placed)."
+    question: "How do upfront admission fees and pay-after-placement fees work?",
+    answer: "Students pay the cohort admission/enrollment fee disclosed upfront before joining; eligible tracks offer deferred training fees payable after placement. Complete fee breakdowns and written refund eligibility rules are shared before payment and published on our Refund Policy page."
   },
   {
-    question: "When do I pay training and placement fees?",
-    answer: "Only after you get a job offer."
+    question: "How does the written placement-support refund policy work?",
+    answer: "Eligible students who complete all 15-week coursework, maintain at least 90% attendance, clear assessments, and actively participate in placement interviews qualify for a written admission-fee refund review if unplaced within 90 days of program completion. Non-refundable items and early withdrawal tiers are detailed on our Refund Policy page."
   },
   {
-    question: "What if I fail assessments?",
-    answer: "You get mentoring and a second attempt."
+    question: "What if I struggle with an assessment?",
+    answer: "You receive 1:1 mentor feedback, guided revision, and structured reassessment opportunities."
   },
   {
-    question: "What happens after I register?",
-    answer: "You'll receive a welcome email/WhatsApp, a free career readiness guide, and an invitation to join an orientation session with your personal mentor."
+    question: "What happens after I take the Career Assessment or register?",
+    answer: "You immediately see your top 3 matched UdaYantu career tracks, receive your syllabus roadmap, and get invited to an orientation session with our student guidance team."
   },
   {
-    question: "How can my employer recruit UdaYantu graduates?",
-    answer: "Employers can join the waitlist using the form above. Our placement team will connect you for onboarding & solving your problems by fulfilling your requirements."
+    question: "How can employers hire UdaYantu graduates?",
+    answer: "Hiring teams can visit our Employers page (/employers) to share role requirements and connect with our placement team for pre-trained fresher shortlists."
   }
 ];
 

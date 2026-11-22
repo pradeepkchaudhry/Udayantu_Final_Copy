@@ -10,7 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Lock, Users, FileText, Shield, BarChart3, UserCheck, TrendingUp, Package, Phone, Award, Calendar, Briefcase, BookOpen, Mail, DollarSign, ChevronDown, MessageSquare, Settings, ClipboardList, ShieldCheck, LogOut } from "lucide-react";
+import { Loader2, Lock, Users, FileText, Shield, BarChart3, UserCheck, TrendingUp, Package, Phone, Award, Calendar, Briefcase, BookOpen, Mail, DollarSign, ChevronDown, MessageSquare, Settings, ClipboardList, ShieldCheck, LogOut, Globe } from "lucide-react";
+import { SEOHead } from "@/components/SEOHead";
+import { AdminSEOPages } from "@/components/admin/AdminSEOPages";
 import { AdminCourses } from "@/components/admin/AdminCourses";
 import { AdminStudents } from "@/components/admin/AdminStudents";
 import { AdminEmployers } from "@/components/admin/AdminEmployers";
@@ -152,7 +154,13 @@ export default function AdminDashboard() {
 
   if (!isSecureAdminLoggedIn) {
     return (
-      <div className="min-h-screen flex flex-col md:flex-row bg-[#F8FAFC] font-sans overflow-hidden">
+      <>
+        <SEOHead
+          title="Admin Login | UdaYantu"
+          description="Restricted administrative portal for UdaYantu staff."
+          noIndex={true}
+        />
+        <div className="min-h-screen flex flex-col md:flex-row bg-[#F8FAFC] font-sans overflow-hidden">
         {/* Left Column: Premium Dark blue gradient and feature list */}
         <div className="hidden md:flex md:w-1/2 bg-gradient-to-br from-[#0F172A] via-[#1E293B] to-[#0F172A] text-white p-12 lg:p-16 flex-col justify-between relative overflow-hidden select-none">
           {/* Code grids background detail */}
@@ -360,6 +368,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+      </>
     );
   }
 
@@ -367,6 +376,12 @@ export default function AdminDashboard() {
   const canViewAudit = true;
 
   return (
+    <>
+    <SEOHead
+      title="Admin Dashboard | UdaYantu"
+      description="Restricted administrative dashboard for UdaYantu."
+      noIndex={true}
+    />
     <Tabs defaultValue="overview" className="min-h-screen flex flex-col md:flex-row bg-[#f8fafc]">
       {/* Sleek left sidebar layout */}
       <div className="w-full md:w-64 bg-white text-slate-800 flex flex-col h-auto md:h-screen md:sticky md:top-0 border-r border-slate-200/80 shadow-md z-20">
@@ -454,6 +469,10 @@ export default function AdminDashboard() {
           <TabsTrigger value="blogs" className="w-full justify-start text-left gap-2.5 px-3.5 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 data-[state=active]:bg-[#FF5A1F] data-[state=active]:text-white transition-all text-xs font-semibold bg-transparent border-none" data-testid="tab-blogs">
             <BookOpen className="w-4.5 h-4.5" />
             Blog Writing
+          </TabsTrigger>
+          <TabsTrigger value="seo" className="w-full justify-start text-left gap-2.5 px-3.5 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 data-[state=active]:bg-[#FF5A1F] data-[state=active]:text-white transition-all text-xs font-semibold bg-transparent border-none" data-testid="tab-seo">
+            <Globe className="w-4.5 h-4.5" />
+            SEO Pages
           </TabsTrigger>
           <TabsTrigger value="settings" className="w-full justify-start text-left gap-2.5 px-3.5 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 data-[state=active]:bg-[#FF5A1F] data-[state=active]:text-white transition-all text-xs font-semibold bg-transparent border-none" data-testid="tab-settings">
             <Settings className="w-4.5 h-4.5" />
@@ -713,8 +732,13 @@ export default function AdminDashboard() {
           <TabsContent value="blogs" className="mt-0 outline-none">
             <AdminBlogs />
           </TabsContent>
+
+          <TabsContent value="seo" className="mt-0 outline-none">
+            <AdminSEOPages />
+          </TabsContent>
         </div>
       </div>
     </Tabs>
+    </>
   );
 }

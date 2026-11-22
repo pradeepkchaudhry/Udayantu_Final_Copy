@@ -23,12 +23,12 @@ export const StudentTrustBanner = memo(({ onScrollToTestimonials }: StudentTrust
                   <Users className="w-7 h-7 md:w-8 md:h-8 text-secondary" />
                 </div>
                 <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold font-heading text-primary leading-tight">
-                  Built for students from villages and Tier‑4/5 towns
+                  Built for graduates from villages and Tier 2, 3 &amp; 4 towns
                 </h2>
               </div>
               
               <p className="text-lg md:text-xl lg:text-2xl font-semibold text-foreground">
-                Your degree matters here.
+                Your degree is your foundation—practical skills build your career.
               </p>
 
               {/* Family Impact */}
@@ -39,9 +39,9 @@ export const StudentTrustBanner = memo(({ onScrollToTestimonials }: StudentTrust
                   </div>
                   <div className="text-center md:text-left">
                     <p className="text-base md:text-lg lg:text-xl font-bold text-primary leading-relaxed">
-                      Support your family, build dignity, and start earning in{" "}
+                      Build practical job readiness, interview confidence, and a corporate career path in{" "}
                       <span className="bg-gradient-to-r from-secondary to-orange-400 bg-clip-text text-transparent font-extrabold">
-                        just 120 days
+                        15 structured weeks
                       </span>.
                     </p>
                   </div>
@@ -56,7 +56,7 @@ export const StudentTrustBanner = memo(({ onScrollToTestimonials }: StudentTrust
                   className="text-base md:text-lg px-8 py-6 h-auto font-semibold group"
                   onClick={onScrollToTestimonials}
                 >
-                  See How Others Succeeded
+                  Explore Graduate Career Stories
                   <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </Button>
               </div>

@@ -1,55 +1,106 @@
 /**
- * SEO Utilities for JSON-LD Structured Data
- * Helps search engines understand page content better
+ * SEO Utilities for Canonical URLs and Schema.org JSON-LD Structured Data.
+ *
+ * Rules enforced:
+ * - Always normalize canonical URLs to https://udayantu.com
+ * - Never apply JobPosting markup to course, guidance, or guarantee pages
+ * - Never invent review ratings, unverified placement rates, or fake prices
  */
 
+import { SITE_CONFIG, EDITORIAL_TEAM } from "@/data/businessTruth";
+
 export interface StructuredData {
-  '@context': string;
-  '@type': string;
-  [key: string]: any;
+  "@context": string;
+  "@type": string;
+  [key: string]: unknown;
 }
 
 /**
- * Organization Schema
+ * Normalize a route path into a clean canonical URL on https://udayantu.com.
+ * Removes trailing slashes (except root "/") and query strings/hashes.
+ */
+export function getCanonicalUrl(path: string): string {
+  const origin = SITE_CONFIG.canonicalOrigin.replace(/\/$/, "");
+  if (!path || path === "/") return `${origin}/`;
+  const cleanPath = path.split("?")[0].split("#")[0].replace(/\/+$/, "");
+  return `${origin}${cleanPath.startsWith("/") ? cleanPath : `/${cleanPath}`}`;
+}
+
+/**
+ * Organization Schema (Verified facts only — no placeholder phone numbers)
  */
 export const organizationSchema: StructuredData = {
-  '@context': 'https://schema.org',
-  '@type': 'Organization',
-  name: 'UdaYantu',
-  url: 'https://udayantu.com',
-  logo: 'https://udayantu.com/favicon.png',
-  description: 'Career development platform for rural Indian graduates with job placement guarantee',
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: SITE_CONFIG.brandName,
+  url: `${SITE_CONFIG.canonicalOrigin}/`,
+  logo: SITE_CONFIG.defaultOgImage,
+  description:
+    "Career guidance, aptitude assessment, role-specific training, and mentorship platform for Indian graduates from rural, Tier 2, Tier 3, and Tier 4 towns.",
   sameAs: [
-    'https://www.facebook.com/udayantu',
-    'https://twitter.com/udayantu',
-    'https://www.linkedin.com/company/udayantu',
-    'https://www.instagram.com/udayantu',
+    "https://www.facebook.com/udayantu",
+    "https://twitter.com/udayantu",
+    "https://www.linkedin.com/company/udayantu",
+    "https://www.instagram.com/udayantu",
+    "https://www.youtube.com/@udayantu",
   ],
   contactPoint: {
-    '@type': 'ContactPoint',
-    contactType: 'Customer Support',
-    telephone: '+91-8800-8800-88',
-    email: 'support@udayantu.com',
+    "@type": "ContactPoint",
+    contactType: "Student Support",
+    email: SITE_CONFIG.supportEmail,
+    availableLanguage: ["English", "Hindi"],
   },
-  address: {
-    '@type': 'PostalAddress',
-    addressCountry: 'IN',
-    addressLocality: 'India',
+  areaServed: {
+    "@type": "Country",
+    name: "India",
   },
 };
 
 /**
- * FAQ Page Schema
+ * WebSite Schema
  */
-export function createFAQSchema(faqs: Array<{ question: string; answer: string }>): StructuredData {
+export const webSiteSchema: StructuredData = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: SITE_CONFIG.brandName,
+  url: `${SITE_CONFIG.canonicalOrigin}/`,
+  inLanguage: "en-IN",
+  description:
+    "Degree-specific career guides, aptitude assessments, and practical job-readiness programmes for Indian graduates.",
+};
+
+/**
+ * BreadcrumbList Schema
+ */
+export function createBreadcrumbSchema(
+  items: Array<{ name: string; path: string }>
+): StructuredData {
   return {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faqs.map(faq => ({
-      '@type': 'Question',
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: getCanonicalUrl(item.path),
+    })),
+  };
+}
+
+/**
+ * FAQPage Schema
+ */
+export function createFAQSchema(
+  faqs: Array<{ question: string; answer: string }>
+): StructuredData {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
       name: faq.question,
       acceptedAnswer: {
-        '@type': 'Answer',
+        "@type": "Answer",
         text: faq.answer,
       },
     })),
@@ -57,146 +108,138 @@ export function createFAQSchema(faqs: Array<{ question: string; answer: string }
 }
 
 /**
- * Breadcrumb Navigation Schema
+ * Article Schema for Degree Guides & Career Guidance Resources (with Author & Reviewer)
  */
-export function createBreadcrumbSchema(items: Array<{ name: string; url: string }>): StructuredData {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: items.map((item, index) => ({
-      '@type': 'ListItem',
-      position: index + 1,
-      name: item.name,
-      item: item.url,
-    })),
-  };
-}
-
-/**
- * Educational Program Schema
- */
-export function createEducationalProgramSchema(program: {
-  name: string;
+export function createArticleSchema(article: {
+  headline: string;
   description: string;
-  duration: string;
-  price: number;
-  jobPlacementRate: number;
+  path: string;
+  datePublished: string;
+  dateModified: string;
+  image?: string;
+  inLanguage?: string;
+  about?: string[];
 }): StructuredData {
   return {
-    '@context': 'https://schema.org',
-    '@type': 'EducationalOccupationalProgram',
-    name: program.name,
-    description: program.description,
-    educationalLevel: 'Bachelor, Master',
-    duration: program.duration,
-    offers: {
-      '@type': 'Offer',
-      price: program.price,
-      priceCurrency: 'INR',
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: article.headline,
+    description: article.description,
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": getCanonicalUrl(article.path),
     },
-    educationalCredentialAwarded: 'Job Placement Guarantee',
-    jobPlacementRate: {
-      '@type': 'QuantitativeValue',
-      value: program.jobPlacementRate,
+    image: article.image || SITE_CONFIG.defaultOgImage,
+    datePublished: article.datePublished,
+    dateModified: article.dateModified,
+    inLanguage: article.inLanguage || "en-IN",
+    author: {
+      "@type": "Person",
+      name: EDITORIAL_TEAM.author.name,
+      jobTitle: EDITORIAL_TEAM.author.role,
+      url: EDITORIAL_TEAM.author.profileUrl,
     },
-    provider: organizationSchema,
+    reviewedBy: {
+      "@type": "Person",
+      name: EDITORIAL_TEAM.reviewer.name,
+      jobTitle: EDITORIAL_TEAM.reviewer.role,
+      url: EDITORIAL_TEAM.reviewer.profileUrl,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: SITE_CONFIG.brandName,
+      logo: {
+        "@type": "ImageObject",
+        url: SITE_CONFIG.defaultOgImage,
+      },
+    },
+    ...(article.about && article.about.length > 0 ? { about: article.about } : {}),
   };
 }
 
 /**
- * Blog Post Schema
+ * Course Schema for verified UdaYantu 15-week career tracks
+ * (Does not fabricate ratings, unverified placement rates, or JobPosting markup.)
+ */
+export function createCourseSchema(course: {
+  name: string;
+  description: string;
+  path: string;
+  durationWeeks: number;
+  skills: string[];
+}): StructuredData {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Course",
+    name: course.name,
+    description: course.description,
+    url: getCanonicalUrl(course.path),
+    provider: {
+      "@type": "Organization",
+      name: SITE_CONFIG.brandName,
+      sameAs: `${SITE_CONFIG.canonicalOrigin}/`,
+    },
+    educationalLevel: "Undergraduate & Postgraduate Freshers",
+    timeRequired: `P${course.durationWeeks}W`,
+    teaches: course.skills,
+    inLanguage: ["en-IN", "hi-IN"],
+    hasCourseInstance: {
+      "@type": "CourseInstance",
+      courseMode: "online",
+      courseWorkload: `P${course.durationWeeks}W`,
+    },
+  };
+}
+
+/**
+ * Blog Post Schema (preserved for existing BlogPost.tsx)
  */
 export function createBlogPostSchema(post: {
   title: string;
   description: string;
-  image: string;
+  image?: string;
   publishDate: string;
   author?: string;
   content?: string;
 }): StructuredData {
   return {
-    '@context': 'https://schema.org',
-    '@type': 'BlogPosting',
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
     headline: post.title,
     description: post.description,
-    image: post.image,
+    image: post.image || SITE_CONFIG.defaultOgImage,
     datePublished: post.publishDate,
     dateModified: post.publishDate,
     author: {
-      '@type': 'Organization',
-      name: post.author || 'UdaYantu',
+      "@type": "Person",
+      name: post.author || EDITORIAL_TEAM.author.name,
     },
     publisher: {
-      '@type': 'Organization',
-      name: 'UdaYantu',
+      "@type": "Organization",
+      name: SITE_CONFIG.brandName,
       logo: {
-        '@type': 'ImageObject',
-        url: 'https://udayantu.com/favicon.png',
+        "@type": "ImageObject",
+        url: SITE_CONFIG.defaultOgImage,
       },
     },
-    ...(post.content && { articleBody: post.content }),
+    ...(post.content ? { articleBody: post.content } : {}),
   };
 }
 
 /**
- * Service Schema
+ * Non-destructive structured data injection (only appends org schema with dedicated ID
+ * so it never overwrites route-specific Helmet JSON-LD blocks).
  */
-export function createServiceSchema(service: {
-  name: string;
-  description: string;
-  image?: string;
-}): StructuredData {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Service',
-    name: service.name,
-    description: service.description,
-    provider: organizationSchema,
-    ...(service.image && { image: service.image }),
-  };
-}
-
-/**
- * Insert structured data into document head
- */
-export function injectStructuredData(schema: StructuredData) {
-  // Remove existing schema if present
-  const existing = document.querySelector('script[type="application/ld+json"]');
+export function injectStructuredData(schema: StructuredData, id = "udayantu-global-org-schema") {
+  if (typeof document === "undefined") return;
+  const existing = document.getElementById(id);
   if (existing) {
-    existing.remove();
+    existing.textContent = JSON.stringify(schema);
+    return;
   }
-
-  // Create and inject new schema
-  const script = document.createElement('script');
-  script.type = 'application/ld+json';
+  const script = document.createElement("script");
+  script.id = id;
+  script.type = "application/ld+json";
   script.textContent = JSON.stringify(schema);
   document.head.appendChild(script);
-}
-
-/**
- * Update page title and meta description
- */
-export function updatePageMeta(title: string, description: string, ogImage?: string) {
-  // Update title
-  document.title = title;
-
-  // Update meta description
-  let metaDescription = document.querySelector('meta[name="description"]') as HTMLMetaElement;
-  if (!metaDescription) {
-    metaDescription = document.createElement('meta');
-    metaDescription.name = 'description';
-    document.head.appendChild(metaDescription);
-  }
-  metaDescription.content = description;
-
-  // Update OG tags
-  if (ogImage) {
-    let ogImage_tag = document.querySelector('meta[property="og:image"]') as HTMLMetaElement;
-    if (!ogImage_tag) {
-      ogImage_tag = document.createElement('meta');
-      ogImage_tag.setAttribute('property', 'og:image');
-      document.head.appendChild(ogImage_tag);
-    }
-    ogImage_tag.content = ogImage;
-  }
 }

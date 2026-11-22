@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { LogIn, Smartphone, Loader2 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
+import { SEOHead } from "@/components/SEOHead";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { signInWithPhoneNumber, RecaptchaVerifier, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { auth as firebaseAuth } from "@/lib/firebase";
@@ -338,6 +339,11 @@ export default function Auth() {
 
   return (
     <>
+      <SEOHead
+        title="Student Sign In | UdaYantu"
+        description="Sign in to your UdaYantu student account."
+        noIndex={true}
+      />
       <Navbar />
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4 pt-24">
         <Card className="w-full max-w-md border-2 border-primary/20 shadow-xl">

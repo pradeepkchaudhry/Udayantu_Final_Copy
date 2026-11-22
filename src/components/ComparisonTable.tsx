@@ -1,84 +1,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Check, Clock, BarChart, IndianRupee, Building2, GraduationCap } from "lucide-react";
+import { Check, Clock, BarChart, GraduationCap, ArrowRight, Wrench } from "lucide-react";
 import { useState } from "react";
 import { AuthModal } from "./AuthModal";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
-
-const programsData = [
-  {
-    name: "Business Development",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹3.5-5L",
-    topCompanies: ["Byju's", "Zomato", "Swiggy"],
-    keySkills: ["Sales", "Negotiation", "Client Relations"]
-  },
-  {
-    name: "Customer Success",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹3-4.5L",
-    topCompanies: ["Freshworks", "Zoho", "Razorpay"],
-    keySkills: ["Support", "Communication", "Problem Solving"]
-  },
-  {
-    name: "Project Management",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹4-6L",
-    topCompanies: ["TCS", "Wipro", "Infosys"],
-    keySkills: ["Agile", "Planning", "Leadership"]
-  },
-  {
-    name: "Operations Management",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹4-6L",
-    topCompanies: ["Amazon", "Flipkart", "Delhivery"],
-    keySkills: ["Logistics", "Process", "Analytics"]
-  },
-  {
-    name: "Product Management",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹5-7L",
-    topCompanies: ["PhonePe", "Paytm", "Cred"],
-    keySkills: ["Strategy", "UX", "Roadmapping"]
-  },
-  {
-    name: "Human Resources",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹3.5-5L",
-    topCompanies: ["HCL", "Tech Mahindra", "Accenture"],
-    keySkills: ["Recruitment", "Compliance", "Engagement"]
-  },
-  {
-    name: "Marketing Management",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹4-6L",
-    topCompanies: ["Myntra", "Nykaa", "Urban Company"],
-    keySkills: ["Digital Marketing", "SEO", "Analytics"]
-  },
-  {
-    name: "Customer Support",
-    duration: "15 weeks",
-    difficulty: "Fresher",
-    avgSalary: "₹2.5-4L",
-    topCompanies: ["Ola", "Urban Company", "BigBasket"],
-    keySkills: ["Communication", "Ticketing", "CRM"]
-  }
-];
+import { Link, useNavigate } from "react-router-dom";
+import { CAREER_PROGRAMS } from "@/data/careerPrograms";
 
 export const ComparisonTable = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [authDefaultTab, setAuthDefaultTab] = useState<"register" | "login">("register");
 
   return (
     <>
@@ -86,10 +19,10 @@ export const ComparisonTable = () => {
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
-              Compare <span className="text-primary">All Programs</span>
+              Compare <span className="text-primary">All 8 Career Tracks</span>
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Find the perfect career path by comparing duration, salary, skills, and hiring partners
+              Compare duration, eligible degrees, tools covered, and core skills across all structured UdaYantu programmes.
             </p>
           </div>
 
@@ -102,17 +35,22 @@ export const ComparisonTable = () => {
                     <tr>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Program</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Duration</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Difficulty</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Avg. Salary</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Top Companies</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Key Skills</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Level</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Best For Degrees</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Key Tools</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Details</th>
                     </tr>
                   </thead>
                   <tbody className="bg-background divide-y divide-border">
-                    {programsData.map((program, index) => (
-                      <tr key={index} className="hover:bg-muted/50 transition-colors">
+                    {CAREER_PROGRAMS.map((program) => (
+                      <tr key={program.id} className="hover:bg-muted/50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="font-semibold text-foreground">{program.name}</span>
+                          <Link
+                            to={program.path}
+                            className="font-semibold text-foreground hover:text-primary transition-colors"
+                          >
+                            {program.name}
+                          </Link>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <Badge variant="secondary" className="flex items-center gap-1 w-fit">
@@ -121,37 +59,35 @@ export const ComparisonTable = () => {
                           </Badge>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge 
-                          variant="outline"
-                          className="w-fit bg-gradient-to-r from-green-500 to-emerald-600 text-white border-0"
-                        >
+                          <Badge variant="outline" className="w-fit text-emerald-700 border-emerald-500/40">
                             <BarChart className="w-3 h-3 mr-1" />
                             {program.difficulty}
                           </Badge>
                         </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1">
+                            {program.bestForDegrees.slice(0, 4).map((deg) => (
+                              <Link key={deg} to={`/jobs-after-${deg}`}>
+                                <Badge variant="outline" className="text-xs hover:border-primary">
+                                  {deg.toUpperCase()}
+                                </Badge>
+                              </Link>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-muted-foreground">
+                            {program.toolsCovered.slice(0, 3).join(" • ")}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <Badge variant="outline" className="border-primary text-primary w-fit">
-                            <IndianRupee className="w-3 h-3 mr-1" />
-                            {program.avgSalary}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {program.topCompanies.map((company, idx) => (
-                              <Badge key={idx} variant="secondary" className="text-xs">
-                                {company}
-                              </Badge>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {program.keySkills.map((skill, idx) => (
-                              <span key={idx} className="text-xs text-muted-foreground">
-                                {skill}{idx < program.keySkills.length - 1 ? " •" : ""}
-                              </span>
-                            ))}
-                          </div>
+                          <Link
+                            to={program.path}
+                            className="inline-flex items-center gap-1 text-sm font-semibold text-secondary hover:underline"
+                          >
+                            Syllabus
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </Link>
                         </td>
                       </tr>
                     ))}
@@ -163,10 +99,14 @@ export const ComparisonTable = () => {
 
           {/* Mobile Cards */}
           <div className="lg:hidden grid gap-4">
-            {programsData.map((program, index) => (
-              <Card key={index} className="border-2 border-border hover:border-primary/30 transition-colors">
+            {CAREER_PROGRAMS.map((program) => (
+              <Card key={program.id} className="border-2 border-border hover:border-primary/30 transition-colors">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-xl">{program.name}</CardTitle>
+                  <CardTitle className="text-xl">
+                    <Link to={program.path} className="hover:text-primary">
+                      {program.name}
+                    </Link>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap gap-2">
@@ -174,41 +114,36 @@ export const ComparisonTable = () => {
                       <Clock className="w-3 h-3" />
                       {program.duration}
                     </Badge>
-                    <Badge 
-                      variant="outline"
-                      className="bg-gradient-to-r from-green-500 to-emerald-600 text-white border-0"
-                    >
+                    <Badge variant="outline" className="text-emerald-700 border-emerald-500/40">
                       <BarChart className="w-3 h-3 mr-1" />
                       {program.difficulty}
                     </Badge>
-                    <Badge variant="outline" className="border-primary text-primary">
-                      <IndianRupee className="w-3 h-3 mr-1" />
-                      {program.avgSalary}
-                    </Badge>
                   </div>
-                  
+
                   <div>
-                    <p className="text-sm font-semibold mb-2 flex items-center gap-1">
-                      <Building2 className="w-4 h-4" />
-                      Top Hiring Companies
+                    <p className="text-sm font-semibold mb-1.5 flex items-center gap-1">
+                      <Wrench className="w-4 h-4" />
+                      Tools Covered
                     </p>
-                    <div className="flex flex-wrap gap-1">
-                      {program.topCompanies.map((company, idx) => (
-                        <Badge key={idx} variant="secondary" className="text-xs">
-                          {company}
-                        </Badge>
+                    <p className="text-xs text-muted-foreground">
+                      {program.toolsCovered.slice(0, 4).join(" • ")}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-semibold mb-1.5 flex items-center gap-1">
+                      <GraduationCap className="w-4 h-4" />
+                      Best For Degrees
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {program.bestForDegrees.slice(0, 4).map((deg) => (
+                        <Link key={deg} to={`/jobs-after-${deg}`}>
+                          <Badge variant="outline" className="text-xs">
+                            {deg.toUpperCase()}
+                          </Badge>
+                        </Link>
                       ))}
                     </div>
-                  </div>
-                  
-                  <div>
-                    <p className="text-sm font-semibold mb-2 flex items-center gap-1">
-                      <GraduationCap className="w-4 h-4" />
-                      Key Skills You'll Learn
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {program.keySkills.join(" • ")}
-                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -216,29 +151,28 @@ export const ComparisonTable = () => {
           </div>
 
           <div className="text-center mt-12">
-            <Button 
+            <Button
               size="lg"
               onClick={() => {
                 if (user) {
                   navigate("/payment");
                 } else {
-                  setAuthDefaultTab("register");
                   setIsAuthOpen(true);
                 }
               }}
               className="bg-secondary text-secondary-foreground hover:bg-secondary/90"
             >
               <Check className="mr-2 w-5 h-5" />
-              Choose Your Program & Register
+              Choose Your Program &amp; Register
             </Button>
           </div>
         </div>
       </section>
 
-      <AuthModal 
-        open={isAuthOpen} 
+      <AuthModal
+        open={isAuthOpen}
         onOpenChange={setIsAuthOpen}
-        defaultTab={authDefaultTab}
+        defaultTab="register"
       />
     </>
   );

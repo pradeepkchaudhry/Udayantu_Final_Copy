@@ -115,10 +115,7 @@ const CookieConsent = ({ onConsent }: CookieConsentProps) => {
 
   return (
     <>
-      {/* Reserve space for cookie banner to prevent CLS */}
-      {showBanner && <div className="h-0 md:h-0" style={{ marginBottom: '120px' }} aria-hidden="true" />}
-      
-      {/* Banner - uses transform for GPU-accelerated animation without CLS */}
+      {/* Banner - fixed bottom overlay using GPU-accelerated animation without CLS */}
       {showBanner && (
         <div
           className="cookie-banner fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border shadow-lg animate-fade-in"

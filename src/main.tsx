@@ -46,12 +46,6 @@ scheduleIdleTask(() => {
       enableResourceHints();
     })
     .catch(() => {});
-
-  import("./utils/seo")
-    .then(({ organizationSchema, injectStructuredData }) => {
-      injectStructuredData(organizationSchema);
-    })
-    .catch(() => {});
 });
 
 if (import.meta.env.PROD) {

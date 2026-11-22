@@ -18,21 +18,21 @@ const About = () => {
   return (
     <>
       <SEOHead 
-        title="About Us - Bridging the Opportunity Gap | UdaYantu"
-        description="UdaYantu bridges the opportunity gap for rural and Tier 4-5 graduates, transforming degrees into careers with job-ready skills and guaranteed placements. Empowering millions with world-class training and 100% job placement commitment."
-        keywords="rural employability India, Tier 4-5 career training, job placement guarantee, rural graduate careers, affordable skill development, village graduates"
-        canonicalUrl={`${window.location.origin}/about`}
+        title="About UdaYantu — Empowering Rural & Tier 2–4 Graduates"
+        description="Learn about UdaYantu's mission to help BA, B.Com, B.Sc, BBA, and BCA graduates across rural and small-town India build practical skills and launch corporate careers."
+        keywords="about UdaYantu, rural graduate employability India, Tier 2-4 career training, practical skills mentorship"
+        canonicalPath="/about"
         ogType="website"
         structuredData={{
           "@context": "https://schema.org",
           "@type": "AboutPage",
           "name": "About UdaYantu",
-          "description": "Bridging the opportunity gap for rural graduates",
-          "url": `${window.location.origin}/about`,
+          "description": "Bridging the career readiness gap for rural and Tier 2–4 Indian graduates",
+          "url": "https://udayantu.com/about",
           "publisher": {
             "@type": "Organization",
             "name": "UdaYantu",
-            "url": window.location.origin
+            "url": "https://udayantu.com/"
           }
         }}
       />

@@ -4,12 +4,18 @@ import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Rocket, ArrowLeft, ShieldCheck } from "lucide-react";
+import { SEOHead } from "@/components/SEOHead";
 
 const EmployerLogin = () => {
   const navigate = useNavigate();
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-between text-slate-800 relative">
+      <SEOHead
+        title="Employer Portal Login | UdaYantu"
+        description="Restricted login portal for verified UdaYantu hiring partners."
+        noIndex={true}
+      />
       {/* Background soft color accents */}
       <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-blue-50 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-indigo-50 rounded-full blur-[120px] pointer-events-none" />

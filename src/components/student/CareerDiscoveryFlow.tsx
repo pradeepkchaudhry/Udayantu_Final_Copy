@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase, adminSupabase } from "@/integrations/supabase/client";
 import { auth as firebaseAuth } from "@/lib/firebase";
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
+import { normalizeDegreeInput, recommendCareerTracks } from "@/utils/careerRecommendationEngine";
 import {
   Sparkles,
   Phone,
@@ -515,50 +516,32 @@ export function CareerDiscoveryFlow({ open, onOpenChange, initialStep = 'otp' }:
     }, 1000);
   };
 
-  // Calculate Match Percentages from Answers
+  // Calculate Match Recommendations using the degree + psychometric engine
   const getCalculatedMatches = () => {
-    let salesScore = 0;
-    let productScore = 0;
-    let opsScore = 0;
-
-    Object.entries(selectedAnswers).forEach(([qIdx, optIdx]) => {
-      if (optIdx === 0) salesScore += 1;
-      if (optIdx === 1) productScore += 1;
-      if (optIdx === 2) opsScore += 1;
-      if (optIdx === 3) opsScore += 1;
-    });
-
-    const total = 15;
-    const bdPct = Math.min(96, Math.max(78, Math.round((salesScore / total) * 100 + 45)));
-    const pmPct = Math.min(92, Math.max(72, Math.round((productScore / total) * 100 + 40)));
-    const opsPct = Math.min(88, Math.max(68, Math.round((opsScore / total) * 100 + 35)));
-
-    return [
+    const recommendations = recommendCareerTracks(
       {
-        role: "Business Development & Sales Executive",
-        role_hi: "बिज़नेस डेवलपमेंट एवं सेल्स एग्जीक्यूटिव",
-        match: bdPct,
-        growth: "High Demand • ₹4.5L - ₹8.0L LPA",
-        desc: "You possess exceptional persuasiveness, high energy, and strategic negotiation skills ideal for revenue generation.",
-        strengths: ["Client Communication", "Target Negotiation", "Relationship Building"]
+        degree: normalizeDegreeInput(admissionProfile.qualification),
+        communicationComfort: 3,
+        analyticalComfort: 3,
+        structuredWorkPreference: 3,
+        peopleEmpathy: 3,
+        persuasionInterest: 3,
+        creativeInterest: 3,
+        technicalComfort: 3,
+        psychometricAnswers: selectedAnswers,
       },
-      {
-        role: "Customer Success & Product Specialist",
-        role_hi: "कस्टमर सक्सेस एवं प्रोडक्ट स्पेशलिस्ट",
-        match: pmPct,
-        growth: "Top Rated • ₹4.0L - ₹7.2L LPA",
-        desc: "Strong empathetic listening and analytical problem solving make you a natural fit for customer retention & growth.",
-        strengths: ["Customer Empathy", "Analytical Mindset", "Solution Design"]
-      },
-      {
-        role: "Operations & Project Coordinator",
-        role_hi: "ऑपरेशंस एवं प्रोजेक्ट कोऑर्डिनेटर",
-        match: opsPct,
-        growth: "Fast Track • ₹3.8L - ₹6.5L LPA",
-        desc: "Your organized execution and structured workflow management ensure seamless project delivery.",
-        strengths: ["Workflow SOPs", "Resource Allocation", "Quality Assurance"]
-      }
-    ];
+      3
+    );
+
+    return recommendations.map((rec) => ({
+      role: rec.program.name,
+      role_hi: rec.program.hindiName,
+      match: rec.matchScore,
+      growth: `${rec.program.duration} Practical Track • ${rec.program.difficulty}`,
+      desc: rec.whyItFitsDegree,
+      strengths: rec.keySkillsToBuild,
+      path: rec.program.path,
+    }));
   };
 
   // Step 8: Handle Admission & Payment Submission

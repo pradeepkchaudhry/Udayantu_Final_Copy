@@ -1,47 +1,52 @@
-User-agent: Googlebot
-Allow: /
-Allow: /blog
-Allow: /about
-Allow: /employers
-Crawl-delay: 0
-
-User-agent: Bingbot
-Allow: /
-Allow: /blog
-Allow: /about
-Allow: /employers
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
+# UdaYantu Robots.txt
+# Canonical domain: https://udayantu.com
 
 User-agent: *
 Allow: /
-Allow: /blog
+Allow: /careers-after-graduation
+Allow: /jobs-after-ba
+Allow: /jobs-after-bcom
+Allow: /jobs-after-bsc
+Allow: /jobs-after-bba
+Allow: /jobs-after-bca
+Allow: /jobs-after-ma
+Allow: /jobs-after-mcom
+Allow: /jobs-after-msc
+Allow: /career-paths
+Allow: /career-paths/
+Allow: /career-assessment
+Allow: /placement-support
+Allow: /student-success-stories
+Allow: /career-guidance
 Allow: /about
 Allow: /employers
+Allow: /blog
+Allow: /contact
+Allow: /support
+Allow: /terms
+Allow: /privacy
+Allow: /refund
+Allow: /assets/
+Allow: /*.css$
+Allow: /*.js$
 
-# Disallow private pages
+# Block private student, employer, payment, auth, and admin areas
+Disallow: /admin
 Disallow: /admin/
+Disallow: /dashboard
 Disallow: /dashboard/
-Disallow: /profile/
-Disallow: /settings/
-Disallow: /payment/
+Disallow: /profile
+Disallow: /settings
+Disallow: /payment
+Disallow: /auth
 Disallow: /auth/
-
-# Disallow bad bots
-User-agent: MJ12bot
-Disallow: /
-
-User-agent: AhrefsBot
-Disallow: /
-
-User-agent: SemrushBot
-Disallow: /
-
-User-agent: DotBot
-Disallow: /
+Disallow: /employer-login
+Disallow: /employer-dashboard
+Disallow: /employer/
+Disallow: /jobs
+Disallow: /team
+Disallow: /team-invite
+Disallow: /analytics
+Disallow: /api/
 
 Sitemap: https://udayantu.com/sitemap.xml

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Navbar } from "@/components/Navbar";
+import { SEOHead } from "@/components/SEOHead";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -108,6 +109,7 @@ export default function Profile() {
   if (loading) {
     return (
       <>
+        <SEOHead title="My Profile | UdaYantu" description="Private student profile page." noIndex={true} />
         <Navbar />
         <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 pt-24 pb-16">
           <div className="container mx-auto px-4 max-w-4xl">
@@ -129,6 +131,7 @@ export default function Profile() {
 
   return (
     <>
+      <SEOHead title="My Profile | UdaYantu" description="Private student profile page." noIndex={true} />
       <Navbar />
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 pt-24 pb-16">
         <div className="container mx-auto px-4 max-w-4xl">

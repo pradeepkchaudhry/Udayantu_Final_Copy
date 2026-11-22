@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { SEOHead } from "@/components/SEOHead";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useEmployerAuth } from "@/hooks/useEmployerAuth";
@@ -130,6 +131,7 @@ const EmployerDashboard = () => {
 
   return (
     <>
+      <SEOHead title="Employer Dashboard | UdaYantu" description="Private employer hiring dashboard." noIndex={true} />
       <Navbar />
       <div className="min-h-screen bg-gradient-to-b from-primary/5 to-background py-12 px-4">
         <div className="max-w-6xl mx-auto">

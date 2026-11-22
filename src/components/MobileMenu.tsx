@@ -1,6 +1,6 @@
 import { Menu, LogOut, LayoutDashboard, User, Settings, HelpCircle, Mail, Phone } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/sheet";
 
 interface MobileMenuProps {
-  navLinks: Array<{ label: string; action: () => void; sectionId: string }>;
+  navLinks: Array<{ label: string; to: string; sectionId: string }>;
   isLinkActive: (sectionId: string) => boolean;
 }
 
@@ -26,7 +26,12 @@ export const MobileMenu = ({ navLinks, isLinkActive }: MobileMenuProps) => {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
   const { isPaid, loading: paymentLoading } = usePaymentStatus();
-  const [userData, setUserData] = useState<any>(null);
+  const [userData, setUserData] = useState<{
+    full_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    payment_status?: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -138,21 +143,26 @@ export const MobileMenu = ({ navLinks, isLinkActive }: MobileMenuProps) => {
 
           {/* Navigation Links */}
           {navLinks.map((link) => (
-            <button
+            <Link
               key={link.label}
-              onClick={() => {
-                link.action();
-                setOpen(false);
-              }}
-              className={`text-left text-base font-medium transition-all py-3 px-4 rounded-xl ${
+              to={link.to}
+              onClick={() => setOpen(false)}
+              className={`text-left text-base font-medium transition-all py-3 px-4 rounded-xl block ${
                 isLinkActive(link.sectionId)
                   ? "text-primary bg-primary/10 border border-primary/20"
                   : "text-foreground hover:text-primary hover:bg-accent/50"
               }`}
             >
               {link.label}
-            </button>
+            </Link>
           ))}
+          <Link
+            to="/employers"
+            onClick={() => setOpen(false)}
+            className="text-left text-base font-medium transition-all py-3 px-4 rounded-xl block text-secondary hover:bg-secondary/10"
+          >
+            For Employers
+          </Link>
           
           <Separator className="my-2" />
           
