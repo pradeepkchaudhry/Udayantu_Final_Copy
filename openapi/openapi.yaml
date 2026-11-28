@@ -25,15 +25,73 @@ components:
       properties:
         code: { type: string }
         message: { type: string }
+    MoneyAmount:
+      type: object
+      required: [paise, inr, currency]
+      properties:
+        paise: { type: string, description: "Authoritative exact integer paise encoded as base-10 string" }
+        inr: { type: number, description: "Display INR derived from exact paise / 100" }
+        currency: { type: string, enum: [INR] }
     GstBreakdown:
       type: object
-      required: [gstRatePercent, isGstInclusive, taxableBaseInr, gstAmountInr, totalPayableInr]
+      required:
+        - gstRatePercent
+        - gstRateBps
+        - isGstInclusive
+        - taxRuleId
+        - candidateSacCode
+        - taxApprovalStatus
+        - taxableBasePaise
+        - gstAmountPaise
+        - totalPayablePaise
+        - taxableBaseInr
+        - gstAmountInr
+        - totalPayableInr
       properties:
         gstRatePercent: { type: number }
+        gstRateBps: { type: integer }
         isGstInclusive: { type: boolean }
+        taxRuleId: { type: string }
+        candidateSacCode: { type: string, enum: ["999293", "998512", "998519"] }
+        taxApprovalStatus: { type: string, enum: [PENDING_ACCOUNTANT_REVIEW, APPROVED_FOR_LIVE_INVOICING] }
+        taxableBasePaise: { type: string }
+        gstAmountPaise: { type: string }
+        totalPayablePaise: { type: string }
         taxableBaseInr: { type: number }
         gstAmountInr: { type: number }
         totalPayableInr: { type: number }
+    TaxRuleConfig:
+      type: object
+      required: [id, serviceCategory, candidateSacCode, rateBps, approvalStatus]
+      properties:
+        id: { type: string }
+        serviceCategory: { type: string, enum: [student_training_admission, student_tuition, employer_placement_services] }
+        candidateSacCode: { type: string, enum: ["999293", "998512", "998519"] }
+        rateBps: { type: integer }
+        approvalStatus: { type: string, enum: [PENDING_ACCOUNTANT_REVIEW, APPROVED_FOR_LIVE_INVOICING] }
+        reviewedByCaName: { type: ["string", "null"] }
+    CommercialDecisionItem:
+      type: object
+      required: [id, number, title, status, blocksLiveBilling]
+      properties:
+        id: { type: string }
+        number: { type: integer }
+        title: { type: string }
+        status: { type: string, enum: [PENDING_OWNER_CA_APPROVAL, APPROVED] }
+        blocksLiveBilling: { type: boolean }
+    CanonicalRecruitmentStage:
+      type: string
+      enum:
+        - applied_sourced
+        - screening
+        - shortlisted
+        - interviewing
+        - offer
+        - accepted
+        - joined
+        - rejected
+        - withdrawn
+        - cancelled
     AdmissionPlanCode:
       type: string
       enum: [plan_a_refundable, plan_b_non_refundable]
@@ -295,6 +353,26 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Joining confirmed }
+  /employer/offers/{offerId}/amend-ctc:
+    post:
+      summary: Amend offer CTC creating immutable CTC snapshot & recalculating linked obligations
+      parameters:
+        - in: path
+          name: offerId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Offer CTC amended with snapshot history }
+  /employer/applications/{applicationId}/stage:
+    patch:
+      summary: Progress candidate application across canonical recruitment stages
+      parameters:
+        - in: path
+          name: applicationId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Application stage updated }
   /admin/dashboard/summary:
     get:
       summary: Executive metrics & funnel counts for admin.udayantu.com
@@ -332,7 +410,7 @@ paths:
         '200': { description: Plan updated }
   /admin/cohorts/{cohortId}/status:
     patch:
-      summary: Set cohort status (disabling preserves student enrollments in read-only mode)
+      summary: Set cohort status (active, disabled, completed, archived; disabling/archiving preserves student enrollments in read-only mode)
       parameters:
         - in: path
           name: cohortId
@@ -340,3 +418,73 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Cohort status updated }
+  /admin/courses/{courseId}/status:
+    patch:
+      summary: Set course lifecycle status (draft, published, disabled, archived) preserving historical enrollments
+      parameters:
+        - in: path
+          name: courseId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Course status updated }
+  /admin/employers/{employerId}/subscription-status:
+    patch:
+      summary: Update employer subscription status (active, past_due, expired, cancelled) and explicit Plan A fallback agreement flag
+      parameters:
+        - in: path
+          name: employerId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Employer subscription status updated }
+  /admin/tax-rules:
+    get:
+      summary: Inspect effective-dated GST/SAC tax rules and CA approval status
+      responses:
+        '200': { description: Tax rules list }
+  /admin/tax-rules/{category}/approve:
+    post:
+      summary: Record Chartered Accountant approval for a service tax rule enabling Live Mode invoicing
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Tax rule approved for live invoicing }
+  /admin/commercial-decisions:
+    get:
+      summary: List the 7 material commercial decisions gating Live Mode billing
+      responses:
+        '200': { description: Commercial decision register }
+  /admin/commercial-decisions/{decisionId}/approve:
+    post:
+      summary: Approve a material commercial decision item
+      parameters:
+        - in: path
+          name: decisionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Decision approved }
+  /admin/ledger/summary:
+    get:
+      summary: Separate Student and Employer exact-paise financial ledger summaries (Cash Collected, Invoiced, Obligated, Outstanding, Refund Liability, Refunded)
+      responses:
+        '200': { description: Financial ledger summary }
+  /admin/analytics/gtm:
+    get:
+      summary: Growth & GTM analytics across Student funnel, Employer funnel, UTM attribution, career tracks, and repeat-hire rate
+      responses:
+        '200': { description: GTM analytics summary }
+  /admin/outbox/process:
+    post:
+      summary: Trigger durable transactional outbox batch processing
+      responses:
+        '200': { description: Outbox batch summary }
+  /admin/outbox/replay:
+    post:
+      summary: Re-queue dead-lettered outbox events for controlled replay
+      responses:
+        '200': { description: Requeued dead-letter count }

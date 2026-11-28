@@ -433,4 +433,171 @@ describe("RCA-2 Adversarial Edge Cases & Full Lifecycle Integration Tests", () =
     const serializedAudit = JSON.stringify(auditLogs);
     assert.equal(serializedAudit.includes("StrongPassword#2026"), false);
   });
+
+  it("17. Exact 74% fails and 75% passes boundary test (100-question calibrated bank)", async () => {
+    const { evaluateFinalAssessmentSubmission } = await import("../domain/finalAssessmentEngine");
+    const questions = Array.from({ length: 100 }, (_, i) => ({
+      id: `q-${i + 1}`,
+      sectionId: "domain_knowledge" as const,
+      sectionTitle: "Domain Knowledge",
+      trackId: "all" as const,
+      prompt: `Question ${i + 1}`,
+      options: [
+        { id: "a", label: "Correct" },
+        { id: "b", label: "Wrong" },
+      ],
+      correctOptionId: "a",
+      weight: 1,
+    }));
+
+    const buildAnswers = (correct: number) =>
+      Object.fromEntries(questions.map((q, idx) => [q.id, idx < correct ? "a" : "b"]));
+
+    const res74 = evaluateFinalAssessmentSubmission({
+      questions,
+      answers: buildAnswers(74),
+      mandatoryCourseworkComplete: true,
+      passingThresholdPercent: 75,
+    });
+    assert.equal(res74.overallScorePercent, 74);
+    assert.equal(res74.meetsScoreThreshold, false);
+    assert.equal(res74.qualified, false);
+
+    const res75 = evaluateFinalAssessmentSubmission({
+      questions,
+      answers: buildAnswers(75),
+      mandatoryCourseworkComplete: true,
+      passingThresholdPercent: 75,
+    });
+    assert.equal(res75.overallScorePercent, 75);
+    assert.equal(res75.meetsScoreThreshold, true);
+    assert.equal(res75.qualified, true);
+  });
+
+  it("18-21. Employer suspension blocks recruitment immediately, past-due subscription blocks silent fallback, CTC amendment recalculates obligations, course archive preserves enrollments, and separate Student/Employer exact-paise ledgers reconcile", async () => {
+    const service = new UdaYantuPlatformService({ env: { NODE_ENV: "test" } });
+    const adminId = "00000000-0000-4000-8000-000000000001";
+
+    const emp = await service.registerEmployer({
+      fullName: "Rohan Mehta",
+      officialEmail: "hr@sahyadrisystems.in",
+      password: "EmployerPass#2026",
+      companyName: "Sahyadri Systems Pvt Ltd",
+      registrationId: "U72200PN2022PTC209911",
+      industry: "Enterprise Tech",
+      city: "Pune",
+      billingModel: "success_fee",
+    });
+    service.adminApproveEmployer(adminId, emp.employer.id, "approve", "KYC verified");
+
+    const stu = await registerAndVerifyStudent(service, {
+      fullName: "Anjali Rao",
+      email: "anjali.rao@example.org",
+      phone10: "9888888888",
+    });
+    await enrollStudent(service, stu.user.id, "course-product-management", "plan_a_refundable");
+    completeCoursework(service, stu.user.id);
+    service.submitFinalAssessment(stu.user.id, buildFinalExamAnswers(11));
+
+    // Grant -> Revoke -> Grant consent and assert consentHistory records every state change
+    service.updateStudentRecruitmentConsent(stu.user.id, true);
+    service.updateStudentRecruitmentConsent(stu.user.id, false);
+    service.updateStudentRecruitmentConsent(stu.user.id, true);
+    const consentHist = service.getConsentHistoryForStudent(stu.user.id);
+    assert.equal(consentHist.length, 3);
+    assert.deepEqual(
+      consentHist.map((h) => h.action),
+      ["granted", "revoked", "granted"]
+    );
+
+    const job = service.createEmployerJob(emp.user.id, {
+      title: "Associate Product Analyst",
+      careerTrackId: "product-management",
+      location: "Pune",
+      minCtcInr: 450000,
+      maxCtcInr: 600000,
+      openings: 2,
+      publishNow: true,
+    });
+    const shortlist = service.shortlistCandidate(emp.user.id, job.id, stu.user.id);
+    const updatedApp = service.updateApplicationStage(emp.user.id, shortlist.id, "interviewing");
+    assert.equal(updatedApp.stage, "interviewing");
+
+    // Suspend employer -> immediately blocked from discovery & issuing offers
+    service.adminApproveEmployer(adminId, emp.employer.id, "suspend", "Compliance review");
+    assert.throws(
+      () => service.searchEligibleConsentedCandidates(emp.user.id),
+      (err: unknown) => err instanceof PlatformError && err.code === "EMPLOYER_NOT_APPROVED"
+    );
+    assert.throws(
+      () =>
+        service.issueWrittenOffer(emp.user.id, {
+          jobId: job.id,
+          studentUserId: stu.user.id,
+          roleTitle: "Associate Product Analyst",
+          agreedCtcInr: 500000,
+          joiningDate: "2027-01-10",
+        }),
+      (err: unknown) => err instanceof PlatformError && err.code === "EMPLOYER_NOT_APPROVED"
+    );
+
+    // Re-approve employer
+    service.adminApproveEmployer(adminId, emp.employer.id, "approve", "Compliance cleared");
+
+    // Switch to monthly subscription, then mark past_due -> offer acceptance MUST fail (NO silent fallback to 8.33%!)
+    service.selectEmployerBillingPlan(emp.user.id, "monthly_subscription");
+    const offer = service.issueWrittenOffer(emp.user.id, {
+      jobId: job.id,
+      studentUserId: stu.user.id,
+      roleTitle: "Associate Product Analyst",
+      agreedCtcInr: 500000,
+      joiningDate: "2027-01-10",
+    });
+
+    service.adminSetEmployerSubscriptionStatus(adminId, emp.employer.id, "past_due", false);
+    assert.throws(
+      () => service.acceptWrittenOfferByStudent(stu.user.id, offer.id),
+      (err: unknown) => err instanceof PlatformError && err.code === "SUBSCRIPTION_INACTIVE_NO_SILENT_FALLBACK"
+    );
+    // Offer must have rolled back cleanly to 'issued'
+    assert.equal(service.getStudentDashboard(stu.user.id).offers[0].status, "issued");
+
+    // Switch explicitly back to success_fee plan and accept offer
+    service.selectEmployerBillingPlan(emp.user.id, "success_fee");
+    const accepted = service.acceptWrittenOfferByStudent(stu.user.id, offer.id);
+    assert.equal(accepted.tuitionObligation.breakdown.totalPayablePaise, "16500000"); // ₹1,65,000.00
+    assert.equal(accepted.employerInvoice.breakdown.taxableBasePaise, "4165000"); // 8.33% of 5L = ₹41,650.00
+
+    // Amend CTC from ₹5,00,000 -> ₹6,00,000 fixed + ₹50,000 discretionary bonus -> tuition & employer invoice recalculate on ₹6,00,000 fixed fee base!
+    const amended = service.amendOfferCtc(emp.user.id, offer.id, {
+      fixedAnnualCtcInr: 600000,
+      variableComponentInr: 50000,
+      reason: "Revised fixed CTC per final compensation letter",
+    });
+    assert.equal(amended.snapshot.versionNumber, 2);
+    assert.equal(amended.ctcHistory.length, 2);
+    assert.equal(amended.updatedTuition?.breakdown.totalPayablePaise, "19800000"); // 33% of 6L = ₹1,98,000.00
+    assert.equal(amended.updatedEmployerInvoice?.breakdown.taxableBasePaise, "4998000"); // 8.33% of 6L = ₹49,980.00
+
+    // Course disable -> reactivate -> archive preserves existing enrollment safely
+    service.adminSetCourseStatus(adminId, "course-product-management", "disabled");
+    assert.match(service.getStudentDashboard(stu.user.id).enrollment?.accessNotice ?? "", /read-only/i);
+    service.adminSetCourseStatus(adminId, "course-product-management", "published");
+    assert.equal(service.getStudentDashboard(stu.user.id).enrollment?.accessNotice, null);
+    service.adminSetCourseStatus(adminId, "course-product-management", "archived");
+    assert.ok(service.getStudentDashboard(stu.user.id).enrollment);
+
+    // Separate Student & Employer Financial Ledgers reconcile in exact paise
+    const ledger = service.getAdminFinancialLedgerSummary(adminId);
+    assert.equal(ledger.studentLedger.cashCollected.paise, "999900");
+    assert.equal(ledger.studentLedger.tuitionObligated.paise, "19800000");
+    assert.equal(ledger.employerLedger.earnedSuccessFees.paise, "5897640"); // 49980 + 18% GST = 58976.40
+    assert.equal(ledger.employerLedger.subscriptionBilled.paise, "589882"); // 4999 + 18% GST = 5898.82
+
+    // GTM Analytics & Outbox processing
+    const gtm = service.getAdminGtmAnalytics(adminId);
+    assert.ok(gtm.employerFunnel.offersAccepted >= 1);
+    const outboxRes = await service.processOutbox(adminId);
+    assert.ok(outboxRes.delivered >= 1);
+  });
 });

@@ -18,23 +18,39 @@
 
 import crypto from "node:crypto";
 import {
+  assertLiveBillingGovernanceApproved,
   calculateEmployerSelectionCharge,
   calculateEmployerSubscriptionInvoice,
   calculateGstInclusiveBreakdown,
   calculateStudentTuitionObligation,
   evaluateAdmissionRefundLifecycle,
+  getDefaultCommercialDecisionRegister,
   getDefaultEmployerPlans,
   getDefaultStudentPlans,
+  getDefaultTaxRules,
+  inrToPaise,
   isOfficialBusinessEmail,
+  paiseToMoney,
+  parsePaise,
   resolveRuntimeMode,
   type AdmissionPlanCode,
+  type CommercialDecisionItem,
   type EmployerBillingModel,
   type EmployerCommercialPlanConfig,
+  type EmployerSubscriptionStatus,
   type GstBreakdown,
+  type MoneyAmount,
   type RefundEvaluationResult,
   type RuntimeMode,
   type StudentAdmissionPlanConfig,
+  type TaxRuleConfig,
 } from "../domain/commercialEngine";
+import {
+  TransactionalOutboxProcessor,
+  type OutboxDeliveryHandler,
+  type OutboxProcessSummary,
+  type OutboxRecord,
+} from "../domain/outboxProcessor";
 import {
   CANONICAL_TRACK_PROFILES,
   PSYCHOMETRIC_ENGINE_VERSION,
@@ -114,7 +130,7 @@ export interface CourseRecord {
   titleHi: string;
   durationDays: number;
   passingThresholdPercent: number;
-  status: "draft" | "published" | "disabled";
+  status: "draft" | "published" | "disabled" | "archived";
   modules: Array<{
     id: string;
     title: string;
@@ -139,7 +155,7 @@ export interface CohortRecord {
   endDate: string;
   durationDays: number;
   capacity: number;
-  status: "active" | "disabled" | "completed";
+  status: "active" | "disabled" | "completed" | "archived";
   disabledAccessPolicy: "read_only_preserve_records";
   mentorName: string;
   upcomingLiveClass: {
@@ -211,6 +227,14 @@ export interface StudentConsentRecord {
   updatedAt: string;
 }
 
+export interface StudentConsentHistoryRecord {
+  id: string;
+  studentUserId: string;
+  action: "granted" | "revoked";
+  policyVersion: string;
+  occurredAt: string;
+}
+
 export interface RefundRequestRecord {
   id: string;
   studentUserId: string;
@@ -234,8 +258,10 @@ export interface EmployerOrganizationRecord {
   billingModel: EmployerBillingModel;
   customSuccessFeePercent: number;
   customMonthlyFeeInr: number;
+  subscriptionStatus: EmployerSubscriptionStatus;
   subscriptionActiveFrom: string | null;
   subscriptionActiveUntil: string | null;
+  explicitPlanAFallbackAgreementAccepted: boolean;
   commercialAgreementVersion: string;
   teamMembers: Array<{
     id: string;
@@ -261,13 +287,26 @@ export interface JobPostingRecord {
   createdAt: string;
 }
 
+export type CanonicalRecruitmentStage =
+  | "applied_sourced"
+  | "screening"
+  | "shortlisted"
+  | "interviewing"
+  | "offer"
+  | "accepted"
+  | "joined"
+  | "rejected"
+  | "withdrawn"
+  | "cancelled";
+
 export interface ShortlistRecord {
   id: string;
   employerId: string;
   jobId: string;
   studentUserId: string;
-  stage: "shortlisted" | "interviewing" | "offered" | "joined";
+  stage: CanonicalRecruitmentStage;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface InterviewRecord {
@@ -281,6 +320,28 @@ export interface InterviewRecord {
   status: "scheduled" | "completed" | "cancelled";
 }
 
+export interface CtcComponentRecord {
+  componentName: string;
+  componentKind: "fixed" | "variable" | "joining_bonus" | "esop";
+  includedInFeeBase: boolean;
+  annualAmountPaise: string;
+  annualAmountInr: number;
+}
+
+export interface CtcSnapshotRecord {
+  id: string;
+  offerId: string;
+  versionNumber: number;
+  fixedAnnualCtcPaise: string;
+  variableComponentPaise: string;
+  feeBaseCtcPaise: string;
+  feeBaseCtcInr: number;
+  amendmentReason: string;
+  components: CtcComponentRecord[];
+  createdByUserId: string;
+  createdAt: string;
+}
+
 export interface WrittenOfferRecord {
   id: string;
   employerId: string;
@@ -288,6 +349,8 @@ export interface WrittenOfferRecord {
   studentUserId: string;
   roleTitle: string;
   agreedCtcInr: number;
+  agreedCtcPaise?: string;
+  ctcVersionNumber?: number;
   joiningDate: string;
   status: "issued" | "accepted" | "declined" | "joined";
   issuedAt: string;
@@ -441,7 +504,10 @@ export class UdaYantuPlatformService {
 
   private studentPlans: Record<AdmissionPlanCode, StudentAdmissionPlanConfig>;
   private employerPlans: Record<EmployerBillingModel, EmployerCommercialPlanConfig>;
+  private taxRules: Record<TaxRuleConfig["serviceCategory"], TaxRuleConfig>;
+  private commercialDecisions: CommercialDecisionItem[];
   private questionBank: FinalAssessmentQuestionRecord[];
+  private readonly outboxProcessor = new TransactionalOutboxProcessor({ maxRetries: 3, baseBackoffMs: 1000 });
 
   private users = new Map<string, PlatformUser>();
   private otpCodes = new Map<string, { code: string; expiresAt: number; attempts: number }>();
@@ -455,17 +521,19 @@ export class UdaYantuPlatformService {
   private finalAttempts = new Map<string, FinalAssessmentAttemptRecord[]>();
   private eligibilities = new Map<string, StudentEligibilityRecord>();
   private consents = new Map<string, StudentConsentRecord>();
+  private consentHistory: StudentConsentHistoryRecord[] = [];
   private refundRequests = new Map<string, RefundRequestRecord>();
   private employers = new Map<string, EmployerOrganizationRecord>();
   private jobs = new Map<string, JobPostingRecord>();
   private shortlists = new Map<string, ShortlistRecord>();
   private interviews = new Map<string, InterviewRecord>();
   private offers = new Map<string, WrittenOfferRecord>();
+  private ctcSnapshots = new Map<string, CtcSnapshotRecord[]>();
   private tuitionObligations = new Map<string, TuitionObligationRecord>(); // keyed by studentUserId (idempotent first qualifying offer)
   private employerInvoices = new Map<string, EmployerInvoiceRecord>();
   private activityEvents: ActivityEventRecord[] = [];
-  private readonly auditLogs: AuditLogRecord[] = []; // Append-only in memory; DB role revokes UPDATE/DELETE
-  private outboxEvents: OutboxEventRecord[] = [];
+  private readonly auditLogs: AuditLogRecord[] = []; // Append-only in memory; DB role/trigger blocks UPDATE/DELETE
+  private outboxEvents: OutboxRecord[] = [];
   private funnelEvents: FunnelEventRecord[] = [];
   private seqCounter = 0;
 
@@ -484,8 +552,10 @@ export class UdaYantuPlatformService {
     this.storage = deps?.storage ?? new PortableGcsStorageAdapter();
     this.sms = deps?.sms ?? new PortableOtpSmsAdapter(env);
     this.email = deps?.email ?? new PortableEmailAdapter(env);
-    this.studentPlans = getDefaultStudentPlans();
-    this.employerPlans = getDefaultEmployerPlans();
+    this.taxRules = getDefaultTaxRules();
+    this.commercialDecisions = getDefaultCommercialDecisionRegister();
+    this.studentPlans = getDefaultStudentPlans(this.taxRules.student_training_admission);
+    this.employerPlans = getDefaultEmployerPlans(this.taxRules.employer_placement_services);
     this.questionBank = [...DEFAULT_FINAL_QUESTION_BANK];
 
     this.seedCanonicalCatalogAndSandboxDemoData();
@@ -619,8 +689,10 @@ export class UdaYantuPlatformService {
         billingModel: "success_fee",
         customSuccessFeePercent: 8.33,
         customMonthlyFeeInr: 4999,
+        subscriptionStatus: "none",
         subscriptionActiveFrom: null,
         subscriptionActiveUntil: null,
+        explicitPlanAFallbackAgreementAccepted: false,
         commercialAgreementVersion: "EMP-SUCCESS-2026.1",
         teamMembers: [
           {
@@ -1347,7 +1419,26 @@ export class UdaYantuPlatformService {
       (e) => e.studentUserId === user.id && e.courseId === course.id && e.status === "pending_payment"
     );
 
-    const breakdown = calculateGstInclusiveBreakdown(plan.priceInr, plan.gstRatePercent);
+    // Live-mode governance gate: block live invoicing until CA/owner approves tax rule & commercial decisions
+    try {
+      assertLiveBillingGovernanceApproved({
+        mode: this.mode,
+        taxRule: this.taxRules.student_training_admission,
+        decisions: this.commercialDecisions,
+      });
+    } catch (err) {
+      throw new PlatformError(
+        412,
+        "LIVE_BILLING_GOVERNANCE_PENDING",
+        err instanceof Error ? err.message : "Live billing governance approval required."
+      );
+    }
+
+    const breakdown = calculateGstInclusiveBreakdown(
+      plan.priceInr,
+      undefined,
+      this.taxRules.student_training_admission
+    );
     const nowIso = new Date().toISOString();
 
     if (!enrollment) {
@@ -1671,10 +1762,13 @@ export class UdaYantuPlatformService {
         ? Math.round(((completedModules + submittedAssignments) / (totalModules + totalAssignments)) * 100)
         : 0;
 
-    // Explicit cohort/course disabled access policy: preserve records, allow read-only access
+    // Explicit cohort/course disabled or archived access policy: preserve records, allow read-only access
     const accessNotice =
-      cohort?.status === "disabled" || course?.status === "disabled"
-        ? "This course or cohort has been paused by Admin. Your enrollment, completed progress, certificates, and refund/eligibility records are safely preserved in read-only mode."
+      cohort?.status === "disabled" ||
+      cohort?.status === "archived" ||
+      course?.status === "disabled" ||
+      course?.status === "archived"
+        ? "This course or cohort has been paused or archived by Admin. Your enrollment, completed progress, certificates, and refund/eligibility records are safely preserved in read-only mode."
         : null;
 
     return {
@@ -1734,11 +1828,16 @@ export class UdaYantuPlatformService {
     const enrollment = this.requireActiveEnrollment(studentUserId);
     const course = this.courses.get(enrollment.courseId)!;
     const cohort = this.cohorts.get(enrollment.cohortId)!;
-    if (cohort.status === "disabled" || course.status === "disabled") {
+    if (
+      cohort.status === "disabled" ||
+      cohort.status === "archived" ||
+      course.status === "disabled" ||
+      course.status === "archived"
+    ) {
       throw new PlatformError(
         403,
         "COHORT_DISABLED_READ_ONLY",
-        "This cohort is currently disabled by Admin. Existing progress is preserved in read-only mode."
+        "This cohort is currently disabled or archived by Admin. Existing progress is preserved in read-only mode."
       );
     }
     if (!course.modules.some((m) => m.id === moduleId)) {
@@ -1767,11 +1866,16 @@ export class UdaYantuPlatformService {
     const enrollment = this.requireActiveEnrollment(studentUserId);
     const course = this.courses.get(enrollment.courseId)!;
     const cohort = this.cohorts.get(enrollment.cohortId)!;
-    if (cohort.status === "disabled" || course.status === "disabled") {
+    if (
+      cohort.status === "disabled" ||
+      cohort.status === "archived" ||
+      course.status === "disabled" ||
+      course.status === "archived"
+    ) {
       throw new PlatformError(
         403,
         "COHORT_DISABLED_READ_ONLY",
-        "This cohort is currently disabled by Admin. Existing submissions are preserved in read-only mode."
+        "This cohort is currently disabled or archived by Admin. Existing submissions are preserved in read-only mode."
       );
     }
     if (!course.assignments.some((a) => a.id === assignmentId)) {
@@ -1992,6 +2096,13 @@ export class UdaYantuPlatformService {
       updatedAt: nowIso,
     };
     this.consents.set(studentUserId, record);
+    this.consentHistory.push({
+      id: crypto.randomUUID(),
+      studentUserId,
+      action: employerVisibilityGranted ? "granted" : "revoked",
+      policyVersion,
+      occurredAt: nowIso,
+    });
 
     this.recordActivity({
       eventType: employerVisibilityGranted ? "student.consent_granted" : "student.consent_revoked",
@@ -2141,8 +2252,10 @@ export class UdaYantuPlatformService {
       billingModel: planCfg.model,
       customSuccessFeePercent: this.employerPlans.success_fee.successFeeCtcPercent ?? 8.33,
       customMonthlyFeeInr: this.employerPlans.monthly_subscription.monthlyFeeInr ?? 4999,
+      subscriptionStatus: "none",
       subscriptionActiveFrom: null,
       subscriptionActiveUntil: null,
+      explicitPlanAFallbackAgreementAccepted: false,
       commercialAgreementVersion: planCfg.agreementVersion,
       teamMembers: [
         {
@@ -2260,16 +2373,21 @@ export class UdaYantuPlatformService {
     if (billingModel === "monthly_subscription") {
       const startIso = now.toISOString();
       const endIso = new Date(now.getTime() + 30 * 86400_000).toISOString();
+      org.subscriptionStatus = "active";
       org.subscriptionActiveFrom = startIso;
       org.subscriptionActiveUntil = endIso;
-      const breakdown = calculateEmployerSubscriptionInvoice(org.customMonthlyFeeInr, plan.gstRatePercent);
+      const breakdown = calculateEmployerSubscriptionInvoice(
+        org.customMonthlyFeeInr,
+        undefined,
+        this.taxRules.employer_placement_services
+      );
       subscriptionInvoice = {
         id: crypto.randomUUID(),
         invoiceNumber: `UDY-EMP-SUB-${startIso.slice(0, 10).replace(/-/g, "")}-${org.id.slice(0, 4).toUpperCase()}`,
         employerId: org.id,
         type: "monthly_subscription",
         referenceId: `${startIso.slice(0, 10)}_30d`,
-        description: `Monthly Unlimited Hiring Subscription (${startIso.slice(0, 10)} to ${endIso.slice(0, 10)}) + 18% GST`,
+        description: `Monthly Unlimited Hiring Subscription (${startIso.slice(0, 10)} to ${endIso.slice(0, 10)}) + ${breakdown.gstRatePercent}% GST`,
         appliedPercent: null,
         waivedReason: null,
         breakdown,
@@ -2278,6 +2396,9 @@ export class UdaYantuPlatformService {
         createdAt: startIso,
       };
       this.employerInvoices.set(subscriptionInvoice.id, subscriptionInvoice);
+    } else {
+      org.subscriptionStatus = "none";
+      org.explicitPlanAFallbackAgreementAccepted = true;
     }
 
     this.recordActivity({
@@ -2464,6 +2585,9 @@ export class UdaYantuPlatformService {
   ) {
     const user = this.requireRole(employerUserId, ["employer_admin", "employer_recruiter"]);
     const org = this.requireEmployerOrg(user.employerId!);
+    if (org.approvalStatus !== "approved") {
+      throw new PlatformError(403, "EMPLOYER_NOT_APPROVED", "Employer must be approved and active to schedule interviews.");
+    }
     const job = this.jobs.get(params.jobId);
     if (!job || job.employerId !== org.id) {
       throw new PlatformError(404, "JOB_NOT_FOUND", "Job not found for your company.");
@@ -2511,6 +2635,8 @@ export class UdaYantuPlatformService {
     if (!Number.isFinite(params.agreedCtcInr) || params.agreedCtcInr <= 0) {
       throw new PlatformError(400, "INVALID_CTC", "Agreed annual CTC must be a positive INR amount.");
     }
+    const nowIso = new Date().toISOString();
+    const ctcPaise = inrToPaise(params.agreedCtcInr).toString();
     const offer: WrittenOfferRecord = {
       id: crypto.randomUUID(),
       employerId: org.id,
@@ -2518,13 +2644,38 @@ export class UdaYantuPlatformService {
       studentUserId: params.studentUserId,
       roleTitle: params.roleTitle.trim(),
       agreedCtcInr: params.agreedCtcInr,
+      agreedCtcPaise: ctcPaise,
+      ctcVersionNumber: 1,
       joiningDate: params.joiningDate,
       status: "issued",
-      issuedAt: new Date().toISOString(),
+      issuedAt: nowIso,
       acceptedAt: null,
       joinedAt: null,
     };
     this.offers.set(offer.id, offer);
+    this.ctcSnapshots.set(offer.id, [
+      {
+        id: crypto.randomUUID(),
+        offerId: offer.id,
+        versionNumber: 1,
+        fixedAnnualCtcPaise: ctcPaise,
+        variableComponentPaise: "0",
+        feeBaseCtcPaise: ctcPaise,
+        feeBaseCtcInr: params.agreedCtcInr,
+        amendmentReason: "Initial written offer issuance",
+        components: [
+          {
+            componentName: "Fixed Annual Gross CTC",
+            componentKind: "fixed",
+            includedInFeeBase: true,
+            annualAmountPaise: ctcPaise,
+            annualAmountInr: params.agreedCtcInr,
+          },
+        ],
+        createdByUserId: user.id,
+        createdAt: nowIso,
+      },
+    ]);
     this.recordActivity({
       eventType: "employer.offer_created",
       actorUserId: user.id,
@@ -2534,11 +2685,187 @@ export class UdaYantuPlatformService {
       entityId: offer.id,
       studentId: params.studentUserId,
       employerId: org.id,
-      safeMetadata: { jobId: job.id, roleTitle: offer.roleTitle, agreedCtcInr: offer.agreedCtcInr },
-      writeAudit: { action: "offer.issued", newValues: { agreedCtcInr: offer.agreedCtcInr, jobId: job.id } },
+      safeMetadata: { jobId: job.id, roleTitle: offer.roleTitle, agreedCtcInr: offer.agreedCtcInr, agreedCtcPaise: ctcPaise },
+      writeAudit: { action: "offer.issued", newValues: { agreedCtcInr: offer.agreedCtcInr, agreedCtcPaise: ctcPaise, jobId: job.id } },
     });
     this.recordFunnelEvent({ stage: "offer_issued", userId: params.studentUserId });
     return offer;
+  }
+
+  /**
+   * Canonical recruitment stage progression (applied_sourced -> screening -> shortlisted -> interviewing -> offer -> accepted -> joined, plus rejected / withdrawn / cancelled).
+   */
+  updateApplicationStage(
+    employerUserId: string,
+    shortlistId: string,
+    nextStage: CanonicalRecruitmentStage
+  ) {
+    const user = this.requireRole(employerUserId, ["employer_admin", "employer_recruiter"]);
+    const org = this.requireEmployerOrg(user.employerId!);
+    if (org.approvalStatus !== "approved") {
+      throw new PlatformError(403, "EMPLOYER_NOT_APPROVED", "Employer must be approved and active.");
+    }
+    const record = this.shortlists.get(shortlistId);
+    if (!record || record.employerId !== org.id) {
+      throw new PlatformError(404, "APPLICATION_NOT_FOUND", "Candidate application not found for your company.");
+    }
+    const prevStage = record.stage;
+    record.stage = nextStage;
+    record.updatedAt = new Date().toISOString();
+    this.recordActivity({
+      eventType: "employer.application_stage_updated",
+      actorUserId: user.id,
+      actorRole: user.role,
+      sourcePortal: "employer",
+      entityType: "application",
+      entityId: record.id,
+      studentId: record.studentUserId,
+      employerId: org.id,
+      safeMetadata: { fromStage: prevStage, toStage: nextStage, jobId: record.jobId },
+      writeAudit: {
+        action: "application.stage_changed",
+        previousValues: { stage: prevStage },
+        newValues: { stage: nextStage },
+      },
+    });
+    return record;
+  }
+
+  /**
+   * Amends an offer's CTC with an immutable CTC snapshot + component history.
+   * If the offer is already accepted, atomically recalculates linked student tuition obligation
+   * and chargeable employer success-fee invoice using exact integer paise math.
+   */
+  amendOfferCtc(
+    actorUserId: string,
+    offerId: string,
+    params: {
+      fixedAnnualCtcInr: number;
+      variableComponentInr?: number;
+      reason: string;
+    }
+  ) {
+    const actor = this.requireRole(actorUserId, ["employer_admin", "admin", "super_admin"]);
+    const offer = this.offers.get(offerId);
+    if (!offer) {
+      throw new PlatformError(404, "OFFER_NOT_FOUND", "Offer not found.");
+    }
+    if (actor.role === "employer_admin" && actor.employerId !== offer.employerId) {
+      throw new PlatformError(403, "FORBIDDEN_EMPLOYER", "You can only amend offers belonging to your company.");
+    }
+    if (!Number.isFinite(params.fixedAnnualCtcInr) || params.fixedAnnualCtcInr <= 0) {
+      throw new PlatformError(400, "INVALID_CTC", "Fixed annual CTC must be a positive INR amount.");
+    }
+    const variableInr = Math.max(0, params.variableComponentInr ?? 0);
+    const fixedPaise = inrToPaise(params.fixedAnnualCtcInr);
+    const variablePaise = inrToPaise(variableInr);
+    const prevCtcInr = offer.agreedCtcInr;
+    const nowIso = new Date().toISOString();
+
+    const history = this.ctcSnapshots.get(offer.id) ?? [];
+    const nextVersion = history.length + 1;
+    const snapshot: CtcSnapshotRecord = {
+      id: crypto.randomUUID(),
+      offerId: offer.id,
+      versionNumber: nextVersion,
+      fixedAnnualCtcPaise: fixedPaise.toString(),
+      variableComponentPaise: variablePaise.toString(),
+      feeBaseCtcPaise: fixedPaise.toString(),
+      feeBaseCtcInr: Number(fixedPaise) / 100,
+      amendmentReason: params.reason.trim() || "CTC amendment",
+      components: [
+        {
+          componentName: "Fixed Annual Gross CTC",
+          componentKind: "fixed",
+          includedInFeeBase: true,
+          annualAmountPaise: fixedPaise.toString(),
+          annualAmountInr: Number(fixedPaise) / 100,
+        },
+        ...(variablePaise > 0n
+          ? [
+              {
+                componentName: "Discretionary Variable / Bonus",
+                componentKind: "variable" as const,
+                includedInFeeBase: false,
+                annualAmountPaise: variablePaise.toString(),
+                annualAmountInr: Number(variablePaise) / 100,
+              },
+            ]
+          : []),
+      ],
+      createdByUserId: actor.id,
+      createdAt: nowIso,
+    };
+    history.push(snapshot);
+    this.ctcSnapshots.set(offer.id, history);
+
+    offer.agreedCtcInr = snapshot.feeBaseCtcInr;
+    offer.agreedCtcPaise = snapshot.feeBaseCtcPaise;
+    offer.ctcVersionNumber = nextVersion;
+
+    // Recalculate linked student tuition obligation if this offer created it
+    let updatedTuition: TuitionObligationRecord | null = null;
+    const existingTuition = this.tuitionObligations.get(offer.studentUserId);
+    if (existingTuition && existingTuition.offerId === offer.id) {
+      const recalculated = calculateStudentTuitionObligation({
+        planCode: existingTuition.planCode,
+        agreedCtcInr: offer.agreedCtcInr,
+        customTuitionPercent: existingTuition.tuitionPercent,
+        taxRule: this.taxRules.student_tuition,
+      });
+      existingTuition.agreedCtcInr = recalculated.agreedCtcInr;
+      existingTuition.breakdown = recalculated.breakdown;
+      updatedTuition = existingTuition;
+    }
+
+    // Recalculate linked chargeable employer success-fee invoice if present
+    let updatedEmployerInvoice: EmployerInvoiceRecord | null = null;
+    for (const inv of this.employerInvoices.values()) {
+      if (inv.type === "success_fee" && inv.referenceId === offer.id && inv.status !== "waived_by_subscription") {
+        const org = this.requireEmployerOrg(offer.employerId);
+        const empCharge = calculateEmployerSelectionCharge({
+          billingModel: "success_fee",
+          agreedCtcInr: offer.agreedCtcInr,
+          successFeePercent: org.customSuccessFeePercent,
+          subscriptionActiveOnDate: false,
+          taxRule: this.taxRules.employer_placement_services,
+        });
+        inv.breakdown = empCharge.breakdown;
+        inv.description = `Amended Qualifying Selection Fee v${nextVersion} (${empCharge.appliedPercent}% of ₹${offer.agreedCtcInr.toLocaleString("en-IN")} CTC + ${empCharge.breakdown.gstRatePercent}% GST)`;
+        updatedEmployerInvoice = inv;
+      }
+    }
+
+    this.recordActivity({
+      eventType: "offer.ctc_amended",
+      actorUserId: actor.id,
+      actorRole: actor.role,
+      sourcePortal: actor.role === "employer_admin" ? "employer" : "admin",
+      entityType: "offer",
+      entityId: offer.id,
+      studentId: offer.studentUserId,
+      employerId: offer.employerId,
+      safeMetadata: {
+        previousCtcInr: prevCtcInr,
+        newFeeBaseCtcInr: offer.agreedCtcInr,
+        versionNumber: nextVersion,
+        reason: snapshot.amendmentReason,
+      },
+      writeAudit: {
+        action: "offer.ctc_amended",
+        previousValues: { agreedCtcInr: prevCtcInr },
+        newValues: { agreedCtcInr: offer.agreedCtcInr, versionNumber: nextVersion, reason: snapshot.amendmentReason },
+      },
+      enqueueOutbox: true,
+    });
+
+    return {
+      offer,
+      snapshot,
+      ctcHistory: history,
+      updatedTuition,
+      updatedEmployerInvoice,
+    };
   }
 
   /**
@@ -2607,14 +2934,33 @@ export class UdaYantuPlatformService {
       tuitionCreatedNow = true;
     }
 
-    // 2. Employer Selection Billing (checks active monthly subscription overlap!)
+    // 2. Employer Selection Billing (strictly checks active paid subscription; NEVER silently falls back!)
     const subscriptionActive = this.isEmployerSubscriptionActiveOn(org, acceptedAt);
-    const empCharge = calculateEmployerSelectionCharge({
-      billingModel: org.billingModel,
-      agreedCtcInr: offer.agreedCtcInr,
-      successFeePercent: org.customSuccessFeePercent,
-      subscriptionActiveOnDate: subscriptionActive,
-    });
+    let empCharge;
+    try {
+      empCharge = calculateEmployerSelectionCharge({
+        billingModel: org.billingModel,
+        agreedCtcInr: offer.agreedCtcInr,
+        successFeePercent: org.customSuccessFeePercent,
+        subscriptionActiveOnDate: subscriptionActive,
+        subscriptionStatus: org.subscriptionStatus,
+        explicitPlanAFallbackAgreementAccepted: org.explicitPlanAFallbackAgreementAccepted,
+        taxRule: this.taxRules.employer_placement_services,
+      });
+    } catch (err) {
+      // Revert offer acceptance atomically if employer subscription billing hold fails!
+      offer.status = "issued";
+      offer.acceptedAt = null;
+      if (tuitionCreatedNow) {
+        this.tuitionObligations.delete(studentUserId);
+      }
+      throw new PlatformError(
+        409,
+        "SUBSCRIPTION_INACTIVE_NO_SILENT_FALLBACK",
+        err instanceof Error ? err.message : "Employer subscription is not active on selection date."
+      );
+    }
+
     const empInvoice: EmployerInvoiceRecord = {
       id: crypto.randomUUID(),
       invoiceNumber: `UDY-EMP-SEL-${acceptedIso.slice(0, 10).replace(/-/g, "")}-${offer.id.slice(0, 6).toUpperCase()}`,
@@ -2622,7 +2968,7 @@ export class UdaYantuPlatformService {
       type: "success_fee",
       referenceId: offer.id,
       description: empCharge.chargeable
-        ? `Qualifying Selection Fee (${empCharge.appliedPercent}% of ₹${offer.agreedCtcInr.toLocaleString("en-IN")} CTC + 18% GST)`
+        ? `Qualifying Selection Fee (${empCharge.appliedPercent}% of ₹${offer.agreedCtcInr.toLocaleString("en-IN")} CTC + ${empCharge.breakdown.gstRatePercent}% GST)`
         : empCharge.waivedReason!,
       appliedPercent: empCharge.appliedPercent,
       waivedReason: empCharge.waivedReason,
@@ -2770,7 +3116,11 @@ export class UdaYantuPlatformService {
     return plan;
   }
 
-  adminSetCohortStatus(adminUserId: string, cohortId: string, status: "active" | "disabled" | "completed") {
+  adminSetCohortStatus(
+    adminUserId: string,
+    cohortId: string,
+    status: "active" | "disabled" | "completed" | "archived"
+  ) {
     const admin = this.requireRole(adminUserId, ["admin", "super_admin"]);
     const cohort = this.cohorts.get(cohortId);
     if (!cohort) throw new PlatformError(404, "COHORT_NOT_FOUND", "Cohort not found.");
@@ -2794,6 +3144,336 @@ export class UdaYantuPlatformService {
       },
     });
     return cohort;
+  }
+
+  adminSetCourseStatus(
+    adminUserId: string,
+    courseId: string,
+    status: "draft" | "published" | "disabled" | "archived"
+  ) {
+    const admin = this.requireRole(adminUserId, ["admin", "super_admin"]);
+    const course = this.courses.get(courseId);
+    if (!course) throw new PlatformError(404, "COURSE_NOT_FOUND", "Course not found.");
+    const prev = course.status;
+    course.status = status;
+    // Historical enrollments, progress, and accepted agreements are preserved intact.
+    this.recordActivity({
+      eventType: "admin.course_status_changed",
+      actorUserId: admin.id,
+      actorRole: admin.role,
+      sourcePortal: "admin",
+      entityType: "course",
+      entityId: course.id,
+      courseId: course.id,
+      safeMetadata: { fromStatus: prev, toStatus: status, enrollmentsPreserved: true },
+      writeAudit: {
+        action: "admin.course_status_changed",
+        previousValues: { status: prev },
+        newValues: { status },
+      },
+    });
+    return course;
+  }
+
+  adminSetEmployerSubscriptionStatus(
+    adminUserId: string,
+    employerId: string,
+    status: EmployerSubscriptionStatus,
+    explicitPlanAFallbackAgreementAccepted?: boolean
+  ) {
+    const admin = this.requireRole(adminUserId, ["admin", "super_admin"]);
+    const org = this.requireEmployerOrg(employerId);
+    const prev = org.subscriptionStatus;
+    org.subscriptionStatus = status;
+    if (typeof explicitPlanAFallbackAgreementAccepted === "boolean") {
+      org.explicitPlanAFallbackAgreementAccepted = explicitPlanAFallbackAgreementAccepted;
+    }
+    this.recordActivity({
+      eventType: "admin.employer_subscription_updated",
+      actorUserId: admin.id,
+      actorRole: admin.role,
+      sourcePortal: "admin",
+      entityType: "employer",
+      entityId: org.id,
+      employerId: org.id,
+      safeMetadata: {
+        fromStatus: prev,
+        toStatus: status,
+        explicitPlanAFallbackAgreementAccepted: org.explicitPlanAFallbackAgreementAccepted,
+      },
+      writeAudit: {
+        action: "admin.employer_subscription_status_changed",
+        previousValues: { subscriptionStatus: prev },
+        newValues: {
+          subscriptionStatus: status,
+          explicitPlanAFallbackAgreementAccepted: org.explicitPlanAFallbackAgreementAccepted,
+        },
+      },
+    });
+    return org;
+  }
+
+  // ==================== TAX GOVERNANCE & COMMERCIAL DECISION REGISTER ====================
+
+  getTaxRules(adminUserId: string) {
+    this.requireRole(adminUserId, ["admin", "super_admin"]);
+    return Object.values(this.taxRules);
+  }
+
+  adminApproveTaxRule(
+    adminUserId: string,
+    category: TaxRuleConfig["serviceCategory"],
+    params: { reviewedByCaName: string; candidateSacCode?: TaxRuleConfig["candidateSacCode"]; rateBps?: number }
+  ) {
+    const admin = this.requireRole(adminUserId, ["admin", "super_admin"]);
+    const rule = this.taxRules[category];
+    if (!rule) throw new PlatformError(404, "TAX_RULE_NOT_FOUND", "Tax rule category not found.");
+    const prev = { approvalStatus: rule.approvalStatus, candidateSacCode: rule.candidateSacCode, rateBps: rule.rateBps };
+    if (params.candidateSacCode) rule.candidateSacCode = params.candidateSacCode;
+    if (typeof params.rateBps === "number" && params.rateBps >= 0) {
+      rule.rateBps = params.rateBps;
+      rule.ratePercent = params.rateBps / 100;
+    }
+    rule.approvalStatus = "APPROVED_FOR_LIVE_INVOICING";
+    rule.reviewedByCaName = params.reviewedByCaName.trim();
+    rule.reviewedAt = new Date().toISOString();
+
+    this.recordActivity({
+      eventType: "admin.tax_rule_approved",
+      actorUserId: admin.id,
+      actorRole: admin.role,
+      sourcePortal: "admin",
+      entityType: "tax_rule",
+      entityId: rule.id,
+      safeMetadata: { category, sacCode: rule.candidateSacCode, rateBps: rule.rateBps, approvalStatus: rule.approvalStatus },
+      writeAudit: {
+        action: "admin.tax_rule_approved",
+        previousValues: prev,
+        newValues: { approvalStatus: rule.approvalStatus, candidateSacCode: rule.candidateSacCode, rateBps: rule.rateBps, reviewedByCaName: rule.reviewedByCaName },
+      },
+    });
+    return rule;
+  }
+
+  getCommercialDecisions(adminUserId: string) {
+    this.requireRole(adminUserId, ["admin", "super_admin"]);
+    return this.commercialDecisions;
+  }
+
+  adminApproveCommercialDecision(adminUserId: string, decisionId: string, approvedBy: string) {
+    const admin = this.requireRole(adminUserId, ["admin", "super_admin"]);
+    const item = this.commercialDecisions.find((d) => d.id === decisionId);
+    if (!item) throw new PlatformError(404, "DECISION_NOT_FOUND", "Commercial decision item not found.");
+    const prev = { status: item.status };
+    item.status = "APPROVED";
+    item.approvedBy = approvedBy.trim() || admin.fullName;
+    item.approvedAt = new Date().toISOString();
+    this.recordActivity({
+      eventType: "admin.commercial_decision_approved",
+      actorUserId: admin.id,
+      actorRole: admin.role,
+      sourcePortal: "admin",
+      entityType: "commercial_decision",
+      entityId: item.id,
+      safeMetadata: { decisionNumber: item.number, status: item.status },
+      writeAudit: {
+        action: "admin.commercial_decision_approved",
+        previousValues: prev,
+        newValues: { status: item.status, approvedBy: item.approvedBy },
+      },
+    });
+    return item;
+  }
+
+  // ==================== SEPARATE STUDENT & EMPLOYER FINANCIAL LEDGERS (EXACT PAISE) ====================
+
+  getAdminFinancialLedgerSummary(adminUserId: string, now = new Date()): {
+    currency: "INR";
+    asOf: string;
+    studentLedger: {
+      cashCollected: MoneyAmount;
+      invoiced: MoneyAmount;
+      tuitionObligated: MoneyAmount;
+      tuitionOutstanding: MoneyAmount;
+      refundLiability: MoneyAmount;
+      refunded: MoneyAmount;
+    };
+    employerLedger: {
+      cashCollected: MoneyAmount;
+      invoiced: MoneyAmount;
+      earnedSuccessFees: MoneyAmount;
+      subscriptionBilled: MoneyAmount;
+      outstanding: MoneyAmount;
+      waivedBySubscriptionCount: number;
+    };
+  } {
+    this.requireRole(adminUserId, ["admin", "super_admin"]);
+
+    let studentCashPaise = 0n;
+    let studentInvoicedPaise = 0n;
+    let studentRefundedPaise = 0n;
+    for (const p of this.paymentRecords.values()) {
+      if (p.status === "captured") {
+        studentCashPaise += parsePaise(p.breakdown.totalPayablePaise);
+        studentInvoicedPaise += parsePaise(p.breakdown.totalPayablePaise);
+      } else if (p.status === "refunded") {
+        studentRefundedPaise += parsePaise(p.breakdown.totalPayablePaise);
+      }
+    }
+
+    let studentTuitionObligatedPaise = 0n;
+    let studentTuitionOutstandingPaise = 0n;
+    for (const ob of this.tuitionObligations.values()) {
+      const amt = parsePaise(ob.breakdown.totalPayablePaise);
+      studentTuitionObligatedPaise += amt;
+      if (ob.status !== "settled") {
+        studentTuitionOutstandingPaise += amt;
+      }
+    }
+
+    let studentRefundLiabilityPaise = 0n;
+    for (const enr of this.enrollments.values()) {
+      if (enr.status === "pending_payment" || enr.planCode !== "plan_a_refundable") continue;
+      const eligibility = this.eligibilities.get(enr.studentUserId);
+      const acceptedOffer = Array.from(this.offers.values()).find(
+        (o) => o.studentUserId === enr.studentUserId && (o.status === "accepted" || o.status === "joined")
+      );
+      const existingReq = Array.from(this.refundRequests.values()).find(
+        (r) => r.studentUserId === enr.studentUserId
+      );
+      const evalRes = evaluateAdmissionRefundLifecycle({
+        planCode: enr.planCode,
+        finalAssessmentPassedAt: eligibility?.passedAt ?? null,
+        qualifyingSelectionAt: acceptedOffer?.acceptedAt ?? null,
+        now,
+        existingRefundProcessingStatus: existingReq?.status ?? "none",
+      });
+      if (
+        evalRes.status === "eligible_for_refund" ||
+        evalRes.status === "refund_requested" ||
+        evalRes.status === "refund_approved"
+      ) {
+        studentRefundLiabilityPaise += parsePaise(enr.lockedGstBreakdown.totalPayablePaise);
+      } else if (evalRes.status === "refund_completed") {
+        studentRefundedPaise += parsePaise(enr.lockedGstBreakdown.totalPayablePaise);
+      }
+    }
+
+    let employerCashPaise = 0n;
+    let employerInvoicedPaise = 0n;
+    let employerSuccessFeesPaise = 0n;
+    let employerSubBilledPaise = 0n;
+    let employerOutstandingPaise = 0n;
+    let waivedCount = 0;
+
+    for (const inv of this.employerInvoices.values()) {
+      if (inv.status === "waived_by_subscription") {
+        waivedCount += 1;
+        continue;
+      }
+      const amt = parsePaise(inv.breakdown.totalPayablePaise);
+      employerInvoicedPaise += amt;
+      if (inv.type === "success_fee") employerSuccessFeesPaise += amt;
+      if (inv.type === "monthly_subscription") employerSubBilledPaise += amt;
+      if (inv.status === "paid") {
+        employerCashPaise += amt;
+      } else {
+        employerOutstandingPaise += amt;
+      }
+    }
+
+    return {
+      currency: "INR",
+      asOf: now.toISOString(),
+      studentLedger: {
+        cashCollected: paiseToMoney(studentCashPaise),
+        invoiced: paiseToMoney(studentInvoicedPaise),
+        tuitionObligated: paiseToMoney(studentTuitionObligatedPaise),
+        tuitionOutstanding: paiseToMoney(studentTuitionOutstandingPaise),
+        refundLiability: paiseToMoney(studentRefundLiabilityPaise),
+        refunded: paiseToMoney(studentRefundedPaise),
+      },
+      employerLedger: {
+        cashCollected: paiseToMoney(employerCashPaise),
+        invoiced: paiseToMoney(employerInvoicedPaise),
+        earnedSuccessFees: paiseToMoney(employerSuccessFeesPaise),
+        subscriptionBilled: paiseToMoney(employerSubBilledPaise),
+        outstanding: paiseToMoney(employerOutstandingPaise),
+        waivedBySubscriptionCount: waivedCount,
+      },
+    };
+  }
+
+  // ==================== GTM, GROWTH & FUNNEL ANALYTICS ====================
+
+  getAdminGtmAnalytics(adminUserId: string) {
+    this.requireRole(adminUserId, ["admin", "super_admin", "cs_agent"]);
+    const funnelCounts = this.funnelEvents.reduce<Record<string, number>>((acc, e) => {
+      acc[e.stage] = (acc[e.stage] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const utmSourceBreakdown = this.funnelEvents.reduce<Record<string, number>>((acc, e) => {
+      const src = e.utmSource || "direct_organic";
+      acc[src] = (acc[src] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const trackEnrollments: Record<string, number> = {};
+    for (const enr of this.enrollments.values()) {
+      if (enr.status === "pending_payment") continue;
+      trackEnrollments[enr.careerTrackId] = (trackEnrollments[enr.careerTrackId] ?? 0) + 1;
+    }
+
+    const hiresByEmployer = new Map<string, number>();
+    for (const offer of this.offers.values()) {
+      if (offer.status === "accepted" || offer.status === "joined") {
+        hiresByEmployer.set(offer.employerId, (hiresByEmployer.get(offer.employerId) ?? 0) + 1);
+      }
+    }
+    const hiringEmployers = hiresByEmployer.size;
+    const repeatHiringEmployers = Array.from(hiresByEmployer.values()).filter((c) => c >= 2).length;
+    const repeatHireRatePercent =
+      hiringEmployers > 0 ? Math.round((repeatHiringEmployers / hiringEmployers) * 100) : 0;
+
+    return {
+      studentFunnel: funnelCounts,
+      employerFunnel: {
+        registered: this.employers.size,
+        approved: Array.from(this.employers.values()).filter((e) => e.approvalStatus === "approved").length,
+        publishedJobs: Array.from(this.jobs.values()).filter((j) => j.status === "published").length,
+        shortlists: this.shortlists.size,
+        interviewsScheduled: this.interviews.size,
+        offersIssued: this.offers.size,
+        offersAccepted: Array.from(this.offers.values()).filter((o) => o.status === "accepted" || o.status === "joined").length,
+        candidatesJoined: Array.from(this.offers.values()).filter((o) => o.status === "joined").length,
+        repeatHireRatePercent,
+      },
+      utmSourceBreakdown,
+      trackEnrollments,
+      consentHistoryCount: this.consentHistory.length,
+    };
+  }
+
+  // ==================== DURABLE OUTBOX PROCESSING & REPLAY ====================
+
+  async processOutbox(
+    adminUserId: string,
+    handler: OutboxDeliveryHandler = async () => undefined,
+    now = new Date()
+  ): Promise<OutboxProcessSummary> {
+    this.requireRole(adminUserId, ["admin", "super_admin"]);
+    return this.outboxProcessor.processBatch(this.outboxEvents, handler, now);
+  }
+
+  replayDeadLetterOutbox(adminUserId: string, eventIds?: string[]): { requeued: number } {
+    this.requireRole(adminUserId, ["admin", "super_admin"]);
+    const requeued = this.outboxProcessor.replayDeadLetters(this.outboxEvents, eventIds);
+    return { requeued };
+  }
+
+  getConsentHistoryForStudent(studentUserId: string): StudentConsentHistoryRecord[] {
+    return this.consentHistory.filter((h) => h.studentUserId === studentUserId);
   }
 
   adminConfigureEmployerCommercials(
@@ -2846,9 +3526,9 @@ export class UdaYantuPlatformService {
       (c) => c.employerVisibilityGranted && !c.revokedAt
     );
     const capturedPayments = Array.from(this.paymentRecords.values()).filter((p) => p.status === "captured");
-    const totalAdmissionRevenueInr = capturedPayments.reduce(
-      (sum, p) => sum + p.breakdown.totalPayableInr,
-      0
+    const totalAdmissionPaise = capturedPayments.reduce(
+      (sum, p) => sum + parsePaise(p.breakdown.totalPayablePaise),
+      0n
     );
     return {
       totals: {
@@ -2860,7 +3540,8 @@ export class UdaYantuPlatformService {
         approvedEmployers: Array.from(this.employers.values()).filter((e) => e.approvalStatus === "approved").length,
         publishedJobs: Array.from(this.jobs.values()).filter((j) => j.status === "published").length,
         acceptedOffers: Array.from(this.offers.values()).filter((o) => o.status === "accepted" || o.status === "joined").length,
-        totalAdmissionRevenueInr,
+        totalAdmissionRevenueInr: Number(totalAdmissionPaise) / 100,
+        totalAdmissionRevenuePaise: totalAdmissionPaise.toString(),
         activityEventCount: this.activityEvents.length,
         auditLogCount: this.auditLogs.length,
         pendingOutboxCount: this.outboxEvents.filter((o) => o.deliveryStatus === "pending").length,
@@ -2926,6 +3607,7 @@ export class UdaYantuPlatformService {
 
   private isEmployerSubscriptionActiveOn(org: EmployerOrganizationRecord, date: Date): boolean {
     if (org.billingModel !== "monthly_subscription") return false;
+    if (org.subscriptionStatus !== "active") return false;
     if (!org.subscriptionActiveFrom || !org.subscriptionActiveUntil) return false;
     const t = date.getTime();
     return (

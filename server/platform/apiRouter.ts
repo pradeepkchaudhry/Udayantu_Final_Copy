@@ -7,18 +7,77 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from "express";
+import { z } from "zod";
 import {
   PlatformError,
   UdaYantuPlatformService,
+  type CanonicalRecruitmentStage,
   type PlatformUser,
   type SourcePortal,
 } from "./platformService";
-import type { AdmissionPlanCode, EmployerBillingModel } from "../domain/commercialEngine";
+import type {
+  AdmissionPlanCode,
+  EmployerBillingModel,
+  EmployerSubscriptionStatus,
+  TaxRuleConfig,
+} from "../domain/commercialEngine";
 import type { CanonicalCareerTrackId } from "../domain/psychometricEngine";
 
 interface AuthedRequest extends Request {
   platformUser?: PlatformUser;
   rawBody?: string;
+}
+
+const AmendCtcBodySchema = z.object({
+  fixedAnnualCtcInr: z.number().positive(),
+  variableComponentInr: z.number().min(0).optional(),
+  reason: z.string().min(3).max(400),
+});
+
+const RecruitmentStageBodySchema = z.object({
+  stage: z.enum([
+    "applied_sourced",
+    "screening",
+    "shortlisted",
+    "interviewing",
+    "offer",
+    "accepted",
+    "joined",
+    "rejected",
+    "withdrawn",
+    "cancelled",
+  ]),
+});
+
+const ApproveTaxRuleBodySchema = z.object({
+  reviewedByCaName: z.string().min(2).max(160),
+  candidateSacCode: z.enum(["999293", "998512", "998519"]).optional(),
+  rateBps: z.number().int().min(0).max(5000).optional(),
+});
+
+const CourseStatusBodySchema = z.object({
+  status: z.enum(["draft", "published", "disabled", "archived"]),
+});
+
+const CohortStatusBodySchema = z.object({
+  status: z.enum(["active", "disabled", "completed", "archived"]),
+});
+
+const SubscriptionStatusBodySchema = z.object({
+  status: z.enum(["none", "active", "past_due", "expired", "cancelled"]),
+  explicitPlanAFallbackAgreementAccepted: z.boolean().optional(),
+});
+
+function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    throw new PlatformError(
+      400,
+      "VALIDATION_ERROR",
+      parsed.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ")
+    );
+  }
+  return parsed.data;
 }
 
 export function createPlatformApiRouter(service: UdaYantuPlatformService) {
@@ -478,6 +537,28 @@ export function createPlatformApiRouter(service: UdaYantuPlatformService) {
     })
   );
 
+  router.post(
+    "/employer/offers/:offerId/amend-ctc",
+    withAuth((req, res) => {
+      const body = parseBody(AmendCtcBodySchema, req.body);
+      res.json(service.amendOfferCtc(req.platformUser!.id, String(req.params.offerId), body));
+    })
+  );
+
+  router.patch(
+    "/employer/applications/:applicationId/stage",
+    withAuth((req, res) => {
+      const body = parseBody(RecruitmentStageBodySchema, req.body);
+      res.json(
+        service.updateApplicationStage(
+          req.platformUser!.id,
+          String(req.params.applicationId),
+          body.stage as CanonicalRecruitmentStage
+        )
+      );
+    })
+  );
+
   // ==================== ADMIN CONTROL PLANE APIS (FOR admin.udayantu.com) ====================
 
   router.get(
@@ -541,13 +622,103 @@ export function createPlatformApiRouter(service: UdaYantuPlatformService) {
   router.patch(
     "/admin/cohorts/:cohortId/status",
     withAuth((req, res) => {
+      const body = parseBody(CohortStatusBodySchema, req.body ?? { status: "disabled" });
+      res.json(service.adminSetCohortStatus(req.platformUser!.id, String(req.params.cohortId), body.status));
+    })
+  );
+
+  router.patch(
+    "/admin/courses/:courseId/status",
+    withAuth((req, res) => {
+      const body = parseBody(CourseStatusBodySchema, req.body);
+      res.json(service.adminSetCourseStatus(req.platformUser!.id, String(req.params.courseId), body.status));
+    })
+  );
+
+  router.patch(
+    "/admin/employers/:employerId/subscription-status",
+    withAuth((req, res) => {
+      const body = parseBody(SubscriptionStatusBodySchema, req.body);
       res.json(
-        service.adminSetCohortStatus(
+        service.adminSetEmployerSubscriptionStatus(
           req.platformUser!.id,
-          String(req.params.cohortId),
-          req.body?.status ?? "disabled"
+          String(req.params.employerId),
+          body.status as EmployerSubscriptionStatus,
+          body.explicitPlanAFallbackAgreementAccepted
         )
       );
+    })
+  );
+
+  router.get(
+    "/admin/tax-rules",
+    withAuth((req, res) => {
+      res.json({ data: service.getTaxRules(req.platformUser!.id) });
+    })
+  );
+
+  router.post(
+    "/admin/tax-rules/:category/approve",
+    withAuth((req, res) => {
+      const body = parseBody(ApproveTaxRuleBodySchema, req.body);
+      res.json(
+        service.adminApproveTaxRule(
+          req.platformUser!.id,
+          String(req.params.category) as TaxRuleConfig["serviceCategory"],
+          body
+        )
+      );
+    })
+  );
+
+  router.get(
+    "/admin/commercial-decisions",
+    withAuth((req, res) => {
+      res.json({ data: service.getCommercialDecisions(req.platformUser!.id) });
+    })
+  );
+
+  router.post(
+    "/admin/commercial-decisions/:decisionId/approve",
+    withAuth((req, res) => {
+      const approvedBy = String(req.body?.approvedBy ?? req.platformUser!.fullName);
+      res.json(
+        service.adminApproveCommercialDecision(
+          req.platformUser!.id,
+          String(req.params.decisionId),
+          approvedBy
+        )
+      );
+    })
+  );
+
+  router.get(
+    "/admin/ledger/summary",
+    withAuth((req, res) => {
+      res.json(service.getAdminFinancialLedgerSummary(req.platformUser!.id));
+    })
+  );
+
+  router.get(
+    "/admin/analytics/gtm",
+    withAuth((req, res) => {
+      res.json(service.getAdminGtmAnalytics(req.platformUser!.id));
+    })
+  );
+
+  router.post(
+    "/admin/outbox/process",
+    withAuth(async (req, res) => {
+      const summary = await service.processOutbox(req.platformUser!.id);
+      res.json(summary);
+    })
+  );
+
+  router.post(
+    "/admin/outbox/replay",
+    withAuth((req, res) => {
+      const ids = Array.isArray(req.body?.eventIds) ? req.body.eventIds.map(String) : undefined;
+      res.json(service.replayDeadLetterOutbox(req.platformUser!.id, ids));
     })
   );
 

@@ -175,4 +175,147 @@ describe("UdaYantu Authoritative Commercial Engine", () => {
     assert.equal(isOfficialBusinessEmail("talent@outlook.com").valid, false);
     assert.equal(isOfficialBusinessEmail("hiring@acmecorp.in").valid, true);
   });
+
+  it("enforces exact integer paise math, zero raw BigInt in JSON, and Day-120 vested refund preservation", () => {
+    const planAGst = calculateGstInclusiveBreakdown(9999);
+    assert.equal(planAGst.totalPayablePaise, "999900");
+    assert.equal(planAGst.taxableBasePaise, "847373");
+    assert.equal(planAGst.gstAmountPaise, "152527");
+    assert.equal(BigInt(planAGst.taxableBasePaise) + BigInt(planAGst.gstAmountPaise), 999900n);
+    assert.doesNotThrow(() => JSON.stringify(planAGst));
+
+    const passDate = new Date("2026-01-01T00:00:00.000Z");
+    const exactDay120 = new Date(passDate.getTime() + 120 * 86400_000);
+    const day121 = new Date(passDate.getTime() + 121 * 86400_000);
+    const day125 = new Date(passDate.getTime() + 125 * 86400_000);
+
+    // At exact Day-120 cutoff timestamp (now === deadline), window is still active
+    const atCutoff = evaluateAdmissionRefundLifecycle({
+      planCode: "plan_a_refundable",
+      finalAssessmentPassedAt: passDate.toISOString(),
+      qualifyingSelectionAt: null,
+      now: exactDay120,
+    });
+    assert.equal(atCutoff.status, "window_active");
+    assert.equal(atCutoff.canRequestRefund, false);
+
+    // Selection ON exact Day-120 cutoff -> non-refundable
+    const selectedOnCutoff = evaluateAdmissionRefundLifecycle({
+      planCode: "plan_a_refundable",
+      finalAssessmentPassedAt: passDate.toISOString(),
+      qualifyingSelectionAt: exactDay120.toISOString(),
+      now: day121,
+    });
+    assert.equal(selectedOnCutoff.status, "non_refundable_due_to_selection");
+    assert.equal(selectedOnCutoff.entitlementVestedAtCutoff, false);
+
+    // Selection AFTER Day-120 cutoff (Day 125) MUST NOT erase vested refund entitlement!
+    const selectedAfterCutoff = evaluateAdmissionRefundLifecycle({
+      planCode: "plan_a_refundable",
+      finalAssessmentPassedAt: passDate.toISOString(),
+      qualifyingSelectionAt: day125.toISOString(),
+      now: day125,
+    });
+    assert.equal(selectedAfterCutoff.status, "eligible_for_refund");
+    assert.equal(selectedAfterCutoff.entitlementVestedAtCutoff, true);
+    assert.equal(selectedAfterCutoff.canRequestRefund, true);
+  });
+
+  it("blocks silent fallback to Plan A 8.33% when Employer subscription is past_due or expired unless explicit agreement accepted", () => {
+    assert.throws(
+      () =>
+        calculateEmployerSelectionCharge({
+          billingModel: "monthly_subscription",
+          agreedCtcInr: 600000,
+          subscriptionActiveOnDate: false,
+          subscriptionStatus: "past_due",
+        }),
+      /SUBSCRIPTION_INACTIVE_NO_SILENT_FALLBACK/
+    );
+
+    assert.throws(
+      () =>
+        calculateEmployerSelectionCharge({
+          billingModel: "monthly_subscription",
+          agreedCtcInr: 600000,
+          subscriptionActiveOnDate: false,
+          subscriptionStatus: "expired",
+          explicitPlanAFallbackAgreementAccepted: false,
+        }),
+      /SUBSCRIPTION_INACTIVE_NO_SILENT_FALLBACK/
+    );
+
+    // Only when explicit Plan A commercial fallback agreement is accepted does Plan A apply
+    const explicitFallback = calculateEmployerSelectionCharge({
+      billingModel: "monthly_subscription",
+      agreedCtcInr: 600000,
+      subscriptionActiveOnDate: false,
+      subscriptionStatus: "expired",
+      explicitPlanAFallbackAgreementAccepted: true,
+    });
+    assert.equal(explicitFallback.chargeable, true);
+    assert.equal(explicitFallback.appliedPercent, 8.33);
+    assert.equal(explicitFallback.breakdown.totalPayablePaise, "5897640");
+  });
+
+  it("enforces CA tax rule & commercial decision register governance gate in Live Mode", async () => {
+    const mod = await import("./commercialEngine");
+    const taxRules = mod.getDefaultTaxRules();
+    const decisions = mod.getDefaultCommercialDecisionRegister();
+
+    assert.equal(decisions.length, 7);
+    assert.equal(taxRules.student_training_admission.approvalStatus, "PENDING_ACCOUNTANT_REVIEW");
+
+    // Sandbox allows controlled testing
+    assert.doesNotThrow(() =>
+      mod.assertLiveBillingGovernanceApproved({
+        mode: "sandbox",
+        taxRule: taxRules.student_training_admission,
+        decisions,
+      })
+    );
+
+    // Live Mode blocks unapproved tax rule
+    assert.throws(
+      () =>
+        mod.assertLiveBillingGovernanceApproved({
+          mode: "live",
+          taxRule: taxRules.student_training_admission,
+          decisions,
+        }),
+      /LIVE_INVOICING_BLOCKED_TAX_UNAPPROVED/
+    );
+
+    // Live Mode blocks pending commercial decisions even after CA approves tax rule
+    const approvedTaxRule = {
+      ...taxRules.student_training_admission,
+      approvalStatus: "APPROVED_FOR_LIVE_INVOICING" as const,
+      reviewedByCaName: "CA Rajesh Kulkarni, FCA",
+      reviewedAt: new Date().toISOString(),
+    };
+    assert.throws(
+      () =>
+        mod.assertLiveBillingGovernanceApproved({
+          mode: "live",
+          taxRule: approvedTaxRule,
+          decisions,
+        }),
+      /LIVE_BILLING_BLOCKED_DECISIONS_PENDING/
+    );
+
+    // Live Mode permits billing once both CA tax rule and all blocking decisions are approved
+    const approvedDecisions = decisions.map((d) => ({
+      ...d,
+      status: "APPROVED" as const,
+      approvedBy: "Founder + CA",
+      approvedAt: new Date().toISOString(),
+    }));
+    assert.doesNotThrow(() =>
+      mod.assertLiveBillingGovernanceApproved({
+        mode: "live",
+        taxRule: approvedTaxRule,
+        decisions: approvedDecisions,
+      })
+    );
+  });
 });

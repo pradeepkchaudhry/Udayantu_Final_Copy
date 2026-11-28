@@ -1,0 +1,46 @@
+# Local Reproducible Integration Stack for UdaYantu (No Cloud Infrastructure Provisioned)
+# Usage:
+#   docker compose up --build
+#   DATABASE_URL="postgres://udayantu:udayantu_local_dev@localhost:5432/udayantu" npx tsx --test server/db/postgres.integration.test.ts
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: udayantu-postgres-16
+    environment:
+      POSTGRES_USER: udayantu
+      POSTGRES_PASSWORD: udayantu_local_dev
+      POSTGRES_DB: udayantu
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U udayantu -d udayantu"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  udayantu-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: udayantu-api-local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_MODE: sandbox
+      NODE_ENV: development
+      API_PORT: 4000
+      DATABASE_URL: postgres://udayantu:udayantu_local_dev@postgres:5432/udayantu
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173,http://localhost:5174
+    ports:
+      - "4000:4000"
+    volumes:
+      - local_object_storage:/var/lib/udayantu/storage
+
+volumes:
+  postgres_data:
+  local_object_storage:

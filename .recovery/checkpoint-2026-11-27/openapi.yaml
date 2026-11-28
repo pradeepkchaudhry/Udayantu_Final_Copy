@@ -1,0 +1,342 @@
+openapi: 3.1.0
+info:
+  title: UdaYantu Unified Platform API
+  version: 2026.2.0
+  description: >
+    Shared authenticated API contract serving udayantu.com (Public, Student, and Employer portals)
+    and admin.udayantu.com (independent Admin control plane) against one authoritative PostgreSQL database.
+servers:
+  - url: https://api.udayantu.com/v1
+    description: Production API
+  - url: http://localhost:3000/v1
+    description: Local Development API
+security:
+  - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+    GstBreakdown:
+      type: object
+      required: [gstRatePercent, isGstInclusive, taxableBaseInr, gstAmountInr, totalPayableInr]
+      properties:
+        gstRatePercent: { type: number }
+        isGstInclusive: { type: boolean }
+        taxableBaseInr: { type: number }
+        gstAmountInr: { type: number }
+        totalPayableInr: { type: number }
+    AdmissionPlanCode:
+      type: string
+      enum: [plan_a_refundable, plan_b_non_refundable]
+    EmployerBillingModel:
+      type: string
+      enum: [success_fee, monthly_subscription]
+    CanonicalCareerTrackId:
+      type: string
+      enum:
+        - business-development
+        - customer-success
+        - project-management
+        - operations-management
+        - product-management
+        - human-resources
+        - marketing-management
+        - customer-support
+paths:
+  /healthz:
+    get:
+      summary: Service health & runtime mode
+      security: []
+      responses:
+        '200': { description: Healthy }
+  /public/commercial-plans:
+    get:
+      summary: Fetch authoritative Student admission plans (Plan A/B) and Employer billing models from backend
+      security: []
+      responses:
+        '200': { description: Authoritative commercial plans with GST breakdowns }
+  /public/courses:
+    get:
+      summary: List published 90-day career-track courses
+      security: []
+      responses:
+        '200': { description: Published courses }
+  /public/analytics/funnel:
+    post:
+      summary: Record growth funnel stage with UTM attribution (zero sensitive behavioural data)
+      security: []
+      responses:
+        '201': { description: Funnel event recorded }
+  /public/assessments/anonymous/start:
+    post:
+      summary: Start free pre-login 11-dimension psychometric assessment
+      security: []
+      responses:
+        '201': { description: Session token and bilingual scenario questions }
+  /public/assessments/anonymous/{token}:
+    get:
+      summary: Retrieve saved anonymous assessment session and 20% free preview if submitted
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Session state and 20% preview }
+    patch:
+      summary: Save anonymous progress securely
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Progress saved }
+  /public/assessments/anonymous/{token}/submit:
+    post:
+      summary: Submit anonymous psychometric assessment and return 20% free result preview
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: 20% free result preview }
+  /auth/me:
+    get:
+      summary: Get currently authenticated user profile
+      responses:
+        '200': { description: User profile }
+        '401': { description: Unauthorized }
+  /auth/otp/request:
+    post:
+      summary: Send Indian +91 mobile OTP
+      security: []
+      responses:
+        '200': { description: OTP dispatched }
+  /auth/student/register:
+    post:
+      summary: Register Student with verified Indian OTP and automatically claim anonymous psychometric session
+      security: []
+      responses:
+        '201': { description: Student created with Bearer token and claimed full report }
+  /auth/employer/register:
+    post:
+      summary: Register Employer with official corporate email only (blocks consumer domains)
+      security: []
+      responses:
+        '201': { description: Employer created pending Admin approval }
+  /auth/login:
+    post:
+      summary: Sign in Student, Employer, or Admin (Admin requires MFA)
+      security: []
+      responses:
+        '200': { description: Authenticated session }
+  /auth/verify-email:
+    post:
+      summary: Verify ownership of registered email address
+      responses:
+        '200': { description: Email verified }
+  /auth/forgot-password:
+    post:
+      summary: Request password recovery code
+      security: []
+      responses:
+        '200': { description: Recovery code sent }
+  /auth/reset-password:
+    post:
+      summary: Reset password with recovery code
+      security: []
+      responses:
+        '200': { description: Password updated }
+  /student/dashboard:
+    get:
+      summary: Fetch student dashboard (career report, 90-day cohort, modules, live class, final exam, consent, 120-day refund clock, offers, tuition)
+      responses:
+        '200': { description: Student dashboard payload }
+  /student/assessments/claim:
+    post:
+      summary: Claim completed anonymous psychometric session into student account
+      responses:
+        '200': { description: Full 3-track career report }
+  /student/payments/orders:
+    post:
+      summary: Create server-side Razorpay order for Plan A or Plan B after explicit commercial agreement acceptance
+      responses:
+        '201': { description: Razorpay order & GST breakdown }
+        '409': { description: Duplicate enrollment prevented }
+  /student/payments/verify:
+    post:
+      summary: Verify Razorpay HMAC-SHA256 payment signature server-side and activate enrollment idempotently
+      responses:
+        '200': { description: Payment verified and enrollment active }
+  /student/modules/{moduleId}/complete:
+    post:
+      summary: Mark a course module completed
+      parameters:
+        - in: path
+          name: moduleId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Module marked complete }
+  /student/assignments/{assignmentId}/submit:
+    post:
+      summary: Submit a required course assignment
+      parameters:
+        - in: path
+          name: assignmentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Assignment submitted }
+  /student/classes/{classId}/attend:
+    post:
+      summary: Record attendance for a Zoom or Google Meet live session
+      parameters:
+        - in: path
+          name: classId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Attendance recorded }
+  /student/final-assessment/questions:
+    get:
+      summary: Fetch final exam questions (strictly stripped of answer keys)
+      responses:
+        '200': { description: Sectioned final assessment questions }
+  /student/final-assessment/submit:
+    post:
+      summary: Grade final assessment server-side (74% fails, 75% passes + mandatory coursework)
+      responses:
+        '200': { description: Graded final assessment result }
+  /student/consent:
+    put:
+      summary: Grant or immediately revoke employer recruitment visibility consent
+      responses:
+        '200': { description: Updated consent state }
+  /student/refund/request:
+    post:
+      summary: Request Plan A admission refund after 120 calendar days post-pass with no qualifying selection
+      responses:
+        '201': { description: Refund request logged }
+        '400': { description: Plan B or window not elapsed / selection occurred }
+  /student/offers/{offerId}/accept:
+    post:
+      summary: Accept written employer offer (authoritative selection event creating idempotent student tuition + employer charge/waiver)
+      parameters:
+        - in: path
+          name: offerId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Offer accepted with tuition & employer billing outcome }
+  /webhooks/razorpay:
+    post:
+      summary: Idempotent Razorpay webhook endpoint verified with HMAC-SHA256 raw body signature
+      security: []
+      responses:
+        '200': { description: Webhook processed idempotently }
+  /employer/workspace:
+    get:
+      summary: Fetch employer profile, approval state, billing terms, jobs, shortlists, interviews, offers, and invoices
+      responses:
+        '200': { description: Employer workspace }
+  /employer/billing/plan:
+    put:
+      summary: Switch employer billing model (success_fee 8.33% + GST vs monthly_subscription ₹4,999 + GST)
+      responses:
+        '200': { description: Billing plan updated }
+  /employer/jobs:
+    post:
+      summary: Create and publish a career-track job posting
+      responses:
+        '201': { description: Job created }
+  /employer/candidates:
+    get:
+      summary: Search verified eligible (>=75%) and actively consented candidates (requires Admin employer approval)
+      responses:
+        '200': { description: Matching eligible consented candidates }
+        '403': { description: Employer not approved }
+  /employer/shortlists:
+    post:
+      summary: Shortlist an eligible consented candidate
+      responses:
+        '201': { description: Shortlist recorded }
+  /employer/interviews:
+    post:
+      summary: Schedule an interview (Zoom / Google Meet / In-Person)
+      responses:
+        '201': { description: Interview scheduled }
+  /employer/offers:
+    post:
+      summary: Issue a formal written job offer with agreed annual CTC
+      responses:
+        '201': { description: Written offer issued }
+  /employer/offers/{offerId}/confirm-joining:
+    post:
+      summary: Confirm candidate joining for an accepted offer
+      parameters:
+        - in: path
+          name: offerId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Joining confirmed }
+  /admin/dashboard/summary:
+    get:
+      summary: Executive metrics & funnel counts for admin.udayantu.com
+      responses:
+        '200': { description: Admin summary }
+  /admin/activity:
+    get:
+      summary: Cursor-paginated central activity feed with portal/entity/track filtering
+      responses:
+        '200': { description: Activity events }
+  /admin/audit-logs:
+    get:
+      summary: Append-only redacted audit logs for financial, eligibility, and approval actions
+      responses:
+        '200': { description: Audit logs }
+  /admin/employers/{employerId}/approve:
+    post:
+      summary: Approve, reject, or suspend an Employer organization
+      parameters:
+        - in: path
+          name: employerId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Employer approval status updated }
+  /admin/plans/{planCode}:
+    patch:
+      summary: Update admission plan price or agreement version (existing enrollments retain locked price)
+      parameters:
+        - in: path
+          name: planCode
+          required: true
+          schema: { $ref: '#/components/schemas/AdmissionPlanCode' }
+      responses:
+        '200': { description: Plan updated }
+  /admin/cohorts/{cohortId}/status:
+    patch:
+      summary: Set cohort status (disabling preserves student enrollments in read-only mode)
+      parameters:
+        - in: path
+          name: cohortId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Cohort status updated }

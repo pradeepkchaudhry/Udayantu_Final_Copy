@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { UdaYantuPlatformService } from "./server/platform/platformService";
 import { createPlatformApiRouter } from "./server/platform/apiRouter";
+import { otelRequestMiddleware } from "./server/domain/telemetry";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.APP_PORT || 3000);
@@ -38,6 +39,7 @@ async function bootstrap() {
   const platformService = new UdaYantuPlatformService();
 
   app.disable("x-powered-by");
+  app.use(otelRequestMiddleware);
 
   app.use(
     cors({
