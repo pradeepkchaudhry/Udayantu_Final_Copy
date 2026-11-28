@@ -63,7 +63,7 @@ export const Footer = memo(() => {
     { to: "/student-success-stories", label: "Student Career Stories" },
     { to: "/career-guidance", label: "Resume & Interview Guide" },
     { to: "/blog", label: "Blog & Career Articles" },
-    { to: "/employers", label: "For Employers" },
+    { to: "/employer", label: "For Employers" },
     { to: "/about", label: "About UdaYantu" },
   ];
 
@@ -152,7 +152,7 @@ export const Footer = memo(() => {
               {/* Verified Trust Indicators */}
               <div className="space-y-3 mb-8">
                 {[
-                  "8 Structured 15-Week Career Tracks",
+                  "8 Structured 90-Day Career Tracks",
                   "1:1 Personal Mentorship & Mock Interviews",
                   "Written Placement-Support & Refund Policy",
                 ].map((item) => (

@@ -1,78 +1,98 @@
-import { useEffect, useState } from "react";
-import { User, Session } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useEffect, useState } from "react";
+import {
+  getAuthToken,
+  platformApi,
+  setAuthToken,
+  type PlatformUserDto,
+} from "@/lib/platformApi";
+
+export interface CompatAuthUser {
+  id: string;
+  email: string;
+  role: PlatformUserDto["role"];
+  user_metadata: {
+    full_name: string;
+    role: PlatformUserDto["role"];
+  };
+}
+
+export interface CompatSession {
+  access_token: string;
+  user: CompatAuthUser;
+}
+
+function toCompatUser(u: PlatformUserDto): CompatAuthUser {
+  return {
+    id: u.id,
+    email: u.email,
+    role: u.role,
+    user_metadata: {
+      full_name: u.fullName,
+      role: u.role,
+    },
+  };
+}
 
 export const useAuth = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [platformUser, setPlatformUser] = useState<PlatformUserDto | null>(null);
+  const [user, setUser] = useState<CompatAuthUser | null>(null);
+  const [session, setSession] = useState<CompatSession | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchSession = async () => {
+  const refreshSession = useCallback(async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setPlatformUser(null);
+      setUser(null);
+      setSession(null);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setSession(session);
-        setUser(session.user);
-      } else {
-        const mockUserStr = localStorage.getItem("udayantu_mock_user");
-        if (mockUserStr) {
-          const parsed = JSON.parse(mockUserStr);
-          setUser(parsed);
-          setSession({ access_token: "mock-token", user: parsed } as any);
-        } else {
-          setSession(null);
-          setUser(null);
-        }
-      }
-    } catch (e) {
-      console.error("Auth fetch error:", e);
+      const { user: fetched } = await platformApi.getMe();
+      const compat = toCompatUser(fetched);
+      setPlatformUser(fetched);
+      setUser(compat);
+      setSession({ access_token: token, user: compat });
+    } catch {
+      // Token expired or invalid — clear cleanly
+      setAuthToken(null);
+      setPlatformUser(null);
+      setUser(null);
+      setSession(null);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, currentSession) => {
-        if (currentSession) {
-          setSession(currentSession);
-          setUser(currentSession.user);
-        } else {
-          const mockUserStr = localStorage.getItem("udayantu_mock_user");
-          if (mockUserStr) {
-            const parsed = JSON.parse(mockUserStr);
-            setUser(parsed);
-            setSession({ access_token: "mock-token", user: parsed } as any);
-          } else {
-            setSession(null);
-            setUser(null);
-          }
-        }
-        setLoading(false);
-      }
-    );
-
-    fetchSession();
-
-    // Listen to storage events to refresh session across tabs
-    const handleStorageChange = () => {
-      fetchSession();
-    };
-    window.addEventListener("storage", handleStorageChange);
-
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener("storage", handleStorageChange);
-    };
   }, []);
 
-  const signOut = async () => {
-    localStorage.removeItem("udayantu_mock_user");
-    await supabase.auth.signOut();
+  useEffect(() => {
+    // Scrub any legacy mock user entry left from older sessions
+    try {
+      localStorage.removeItem("udayantu_mock_user");
+    } catch {
+      // ignore
+    }
+
+    refreshSession();
+
+    const onAuthChange = () => {
+      refreshSession();
+    };
+    window.addEventListener("udayantu-auth-change", onAuthChange);
+    window.addEventListener("storage", onAuthChange);
+    return () => {
+      window.removeEventListener("udayantu-auth-change", onAuthChange);
+      window.removeEventListener("storage", onAuthChange);
+    };
+  }, [refreshSession]);
+
+  const signOut = useCallback(async () => {
+    setAuthToken(null);
+    setPlatformUser(null);
     setUser(null);
     setSession(null);
-    window.dispatchEvent(new Event("storage"));
-  };
+  }, []);
 
-  return { user, session, loading, signOut };
+  return { user, platformUser, session, loading, signOut, refreshSession };
 };

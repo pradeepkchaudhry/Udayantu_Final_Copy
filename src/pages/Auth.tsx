@@ -1,337 +1,190 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowRight, CheckCircle2, KeyRound, Mail, Phone, ShieldCheck, UserPlus } from "lucide-react";
+import { SEOHead } from "@/components/SEOHead";
+import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
-import { LogIn, Smartphone, Loader2 } from "lucide-react";
-import { Navbar } from "@/components/Navbar";
-import { SEOHead } from "@/components/SEOHead";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { signInWithPhoneNumber, RecaptchaVerifier, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { auth as firebaseAuth } from "@/lib/firebase";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  getAnonymousAssessmentToken,
+  platformApi,
+  setAuthToken,
+} from "@/lib/platformApi";
+import { trackFunnelStage } from "@/lib/funnelAnalytics";
 
-export default function Auth() {
+type AuthMode = "register" | "login" | "recovery";
+
+const Auth = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const { platformUser, refreshSession } = useAuth();
+
+  const initialMode: AuthMode =
+    location.pathname === "/register" || searchParams.get("unlockReport") === "1"
+      ? "register"
+      : "login";
+
+  const returnTo = searchParams.get("returnTo") || "/dashboard";
+  const hasSavedAssessment = Boolean(getAnonymousAssessmentToken());
+
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Registration state
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(false);
-  const [isCheckingUser, setIsCheckingUser] = useState(false);
-  const [language, setLanguage] = useState<"en" | "hi">("en");
-  const [confirmationResult, setConfirmationResult] = useState<any>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [sandboxOtpHint, setSandboxOtpHint] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
 
-  // Bilingual Support - Complete translations for Auth flow
-  const text = {
-    en: {
-      invalidPhone: "Invalid Phone Number",
-      invalidPhoneDesc: "Please enter a valid 10-digit Indian mobile number",
-      error: "Error",
-      errorTry: "Please try again",
-      otpSent: "OTP Sent Successfully",
-      otpSentDesc: "Please check your phone for the 6-digit OTP code",
-      devMode: "Development Mode",
-      devOtp: "Your OTP is",
-      failedOTP: "Failed to Send OTP",
-      failedOTPDesc: "Please try again or contact support",
-      invalidOTP: "Invalid OTP",
-      invalidOTPDesc: "Please enter the complete 6-digit OTP",
-      verifyFailed: "Verification Failed",
-      verifyFailedDesc: "Invalid OTP. Please check and try again.",
-      authFailed: "Authentication failed. Please try again.",
-      authResponse: "Authentication response invalid. Please try again.",
-      loginSuccess: "Login Successful!",
-      loginSuccessDesc: "Redirecting to your dashboard...",
-      mobileNumber: "Mobile Number",
-      enter10Digit: "Enter 10-digit mobile number",
-      otpSentTo: "OTP sent to this number",
-      checking: "We'll check if you're already registered",
-      enterOTP: "Enter OTP",
-      enter6Digit: "Enter the 6-digit OTP sent to your mobile",
-      changeMobile: "Change mobile number",
-      checking2: "Checking",
-      verifyOTP: "Verify & Continue",
-      continue: "Continue",
-      backHome: "Back to Home",
-      verifyMobile: "Verify your mobile number",
-      enterMobileToStart: "Enter your mobile number to continue",
-    },
-    hi: {
-      invalidPhone: "अमान्य फोन नंबर",
-      invalidPhoneDesc: "कृपया एक वैध 10-अंकीय भारतीय मोबाइल नंबर दर्ज करें",
-      error: "त्रुटि",
-      errorTry: "कृपया पुनः प्रयास करें",
-      otpSent: "OTP सफलतापूर्वक भेजा गया",
-      otpSentDesc: "कृपया अपने फोन पर 6-अंकीय OTP कोड की जांच करें",
-      devMode: "विकास मोड",
-      devOtp: "आपका OTP है",
-      failedOTP: "OTP भेजने में विफल",
-      failedOTPDesc: "कृपया पुनः प्रयास करें या सहायता के लिए संपर्क करें",
-      invalidOTP: "अमान्य OTP",
-      invalidOTPDesc: "कृपया पूर्ण 6-अंकीय OTP दर्ज करें",
-      verifyFailed: "सत्यापन विफल",
-      verifyFailedDesc: "अमान्य OTP। कृपया जांचें और पुनः प्रयास करें।",
-      authFailed: "प्रमाणीकरण विफल। कृपया पुनः प्रयास करें।",
-      authResponse: "प्रमाणीकरण प्रतिक्रिया अमान्य। कृपया पुनः प्रयास करें।",
-      loginSuccess: "लॉगिन सफल!",
-      loginSuccessDesc: "आपके डैशबोर्ड पर रीडायरेक्ट हो रहा है...",
-      mobileNumber: "मोबाइल नंबर",
-      enter10Digit: "10-अंकीय मोबाइल नंबर दर्ज करें",
-      otpSentTo: "इस नंबर पर OTP भेजा गया",
-      checking: "हम जांच करेंगे कि क्या आप पहले से पंजीकृत हैं",
-      enterOTP: "OTP दर्ज करें",
-      enter6Digit: "अपने मोबाइल पर भेजे गए 6-अंकीय OTP को दर्ज करें",
-      changeMobile: "मोबाइल नंबर बदलें",
-      checking2: "जांच रहे हैं",
-      verifyOTP: "सत्यापित करें और जारी रखें",
-      continue: "जारी रखें",
-      backHome: "होम पर वापस जाएं",
-      verifyMobile: "अपने मोबाइल नंबर को सत्यापित करें",
-      enterMobileToStart: "जारी रखने के लिए अपना मोबाइल नंबर दर्ज करें",
-    },
-  };
+  // Login state
+  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
-  const t = text[language];
+  // Recovery state
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryCodeSent, setRecoveryCodeSent] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [recoveryHint, setRecoveryHint] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
 
-  // Check if user is already logged in
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        navigate("/dashboard");
-      }
-    };
-    checkSession();
-  }, [navigate]);
-
-  // Check if user exists in the system
-  const checkUserExists = async (phoneNumber: string): Promise<{ exists: boolean; hasUserId: boolean }> => {
-    try {
-      const { data, error } = await supabase
-        .from('student_registrations')
-        .select('user_id')
-        .eq('phone', phoneNumber)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error checking user:', error);
-        return { exists: false, hasUserId: false };
-      }
-
-      return { 
-        exists: !!data, 
-        hasUserId: !!data?.user_id 
-      };
-    } catch (error) {
-      console.error('Unexpected error in checkUserExists:', error);
-      return { exists: false, hasUserId: false };
+    if (platformUser?.role === "student") {
+      navigate(returnTo, { replace: true });
+    } else if (
+      platformUser?.role === "employer_admin" ||
+      platformUser?.role === "employer_recruiter"
+    ) {
+      navigate("/employer/dashboard", { replace: true });
     }
-  };
+  }, [platformUser, navigate, returnTo]);
 
-  // Handle initial phone number submission
-  const handlePhoneSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validate phone number
-    const phoneRegex = /^[6-9]\d{9}$/;
-    if (!phoneRegex.test(phone)) {
-      toast({
-        title: t.invalidPhone,
-        description: t.invalidPhoneDesc,
-        variant: "destructive",
-      });
+  const handleRequestOtp = async () => {
+    setError(null);
+    setNotice(null);
+    const cleaned = phone.replace(/\D/g, "").replace(/^91/, "");
+    if (!/^[6-9]\d{9}$/.test(cleaned)) {
+      setError("Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.");
       return;
     }
-
-    setIsCheckingUser(true);
-    
-    try {
-      const { exists, hasUserId } = await checkUserExists(phone);
-
-      // Always use OTP for authentication - more secure
-      setIsNewUser(!exists);
-      await handleSendOTP();
-    } catch (error: any) {
-      console.error('Phone submit error:', error);
-      toast({
-        title: t.error,
-        description: error.message || t.errorTry,
-        variant: "destructive",
-      });
-    } finally {
-      setIsCheckingUser(false);
-    }
-  };
-
-  const getRecaptchaVerifier = () => {
-    if (!(window as any).recaptchaVerifier) {
-      try {
-        (window as any).recaptchaVerifier = new RecaptchaVerifier(
-          firebaseAuth,
-          "recaptcha-container",
-          {
-            size: "invisible",
-            callback: () => {},
-            "expired-callback": () => {
-              console.warn("reCAPTCHA expired, resetting...");
-              if ((window as any).recaptchaVerifier) {
-                (window as any).recaptchaVerifier.clear();
-                (window as any).recaptchaVerifier = null;
-              }
-            }
-          }
-        );
-      } catch (err) {
-        console.error("Error setting up RecaptchaVerifier:", err);
-      }
-    }
-    return (window as any).recaptchaVerifier;
-  };
-
-  const handleSendOTP = async () => {
     setLoading(true);
-    
     try {
-      const phoneNumber = `+91${phone}`;
-      const appVerifier = getRecaptchaVerifier();
-      
-      const confirmResult = await signInWithPhoneNumber(firebaseAuth, phoneNumber, appVerifier);
-      setConfirmationResult(confirmResult);
-
+      const res = await platformApi.requestOtp(cleaned);
       setOtpSent(true);
-      toast({
-        title: t.otpSent,
-        description: t.otpSentDesc,
-      });
-    } catch (error: any) {
-      console.error('Send OTP error:', error);
-      toast({
-        title: t.failedOTP,
-        description: error.message || t.failedOTPDesc,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (otp.length !== 6) {
-      toast({
-        title: t.invalidOTP,
-        description: t.invalidOTPDesc,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!confirmationResult) {
-      toast({
-        title: t.error,
-        description: "No active verification code found. Please re-send OTP.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoading(true);
-    
-    try {
-      const userCredential = await confirmationResult.confirm(otp);
-      const firebaseUser = userCredential.user;
-
-      const mockUser = {
-        id: firebaseUser.uid,
-        phone: firebaseUser.phoneNumber || phone,
-        email: `student_${phone}@udayantu.app`,
-        user_metadata: {
-          phone: firebaseUser.phoneNumber || phone,
-          verified: true
-        }
-      };
-
-      localStorage.setItem("udayantu_mock_user", JSON.stringify(mockUser));
-      window.dispatchEvent(new Event("storage"));
-
-      toast({
-        title: t.loginSuccess,
-        description: t.loginSuccessDesc,
-      });
-
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 500);
-    } catch (error: any) {
-      console.error('Verify OTP error:', error);
-      toast({
-        title: t.verifyFailed,
-        description: error.message || t.verifyFailedDesc,
-        variant: "destructive",
-      });
-      setOtp(""); // Clear OTP on error
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    setLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(firebaseAuth, provider);
-      const firebaseUser = result.user;
-
-      // Check if user already exists by email in student_registrations
-      let dbUser = null;
-      if (firebaseUser.email) {
-        const { data } = await supabase
-          .from("student_registrations")
-          .select("*")
-          .eq("email", firebaseUser.email)
-          .maybeSingle();
-        dbUser = data;
+      setSandboxOtpHint(res.sandboxOtpHint ?? null);
+      if (res.sandboxOtpHint) {
+        setOtpCode(res.sandboxOtpHint);
       }
+      setNotice(`Verification OTP sent to ${res.maskedPhone}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not dispatch OTP.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      const mockUser = {
-        id: firebaseUser.uid,
-        phone: firebaseUser.phoneNumber || "",
-        email: firebaseUser.email || "",
-        user_metadata: {
-          full_name: firebaseUser.displayName || "",
-          email: firebaseUser.email || "",
-          avatar_url: firebaseUser.photoURL || "",
-          verified: true
-        }
-      };
-
-      localStorage.setItem("udayantu_mock_user", JSON.stringify(mockUser));
-      window.dispatchEvent(new Event("storage"));
-
-      toast({
-        title: t.loginSuccess,
-        description: t.loginSuccessDesc,
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    if (!otpSent || otpCode.trim().length < 6) {
+      setError("Please request and enter the 6-digit Indian mobile OTP first.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const anonToken = getAnonymousAssessmentToken();
+      const res = await platformApi.registerStudent({
+        fullName,
+        email,
+        phone,
+        otpCode: otpCode.trim(),
+        password,
+        anonymousAssessmentToken: anonToken,
       });
+      setAuthToken(res.token);
+      if (res.sandboxEmailCodeHint) {
+        sessionStorage.setItem("udayantu_email_verify_hint", res.sandboxEmailCodeHint);
+      }
+      trackFunnelStage("full_report_registered");
+      await refreshSession();
+      navigate(returnTo || res.redirectTo || "/dashboard", { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed. Please check your details.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      setTimeout(() => {
-        if (dbUser && dbUser.payment_status === 'paid') {
-          navigate("/dashboard");
-        } else {
-          navigate("/payment");
-        }
-      }, 500);
-    } catch (error: any) {
-      console.error("Google login error:", error);
-      toast({
-        title: "Authentication Failed",
-        description: error.message || "Failed to sign in with Google.",
-        variant: "destructive",
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    setLoading(true);
+    try {
+      const anonToken = getAnonymousAssessmentToken();
+      const res = await platformApi.login({
+        emailOrPhone: loginIdentifier.trim(),
+        password: loginPassword,
+        expectedPortal: "student",
+        anonymousAssessmentToken: anonToken,
       });
+      setAuthToken(res.token);
+      await refreshSession();
+      navigate(returnTo || res.redirectTo || "/dashboard", { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign in failed. Verify your email/phone and password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRequestRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    setLoading(true);
+    try {
+      const res = await platformApi.requestPasswordRecovery(recoveryEmail.trim());
+      setRecoveryCodeSent(true);
+      setRecoveryHint(res.sandboxResetCodeHint ?? null);
+      if (res.sandboxResetCodeHint) {
+        setRecoveryCode(res.sandboxResetCodeHint);
+      }
+      setNotice("If an account exists for this email, a password recovery code has been sent.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send recovery code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    setLoading(true);
+    try {
+      await platformApi.resetPassword({
+        email: recoveryEmail.trim(),
+        code: recoveryCode.trim(),
+        newPassword,
+      });
+      setNotice("Password updated successfully. You can now sign in with your new password.");
+      setMode("login");
+      setLoginIdentifier(recoveryEmail.trim());
+      setLoginPassword("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Password reset failed.");
     } finally {
       setLoading(false);
     }
@@ -340,161 +193,320 @@ export default function Auth() {
   return (
     <>
       <SEOHead
-        title="Student Sign In | UdaYantu"
-        description="Sign in to your UdaYantu student account."
+        title="Student Sign In & Registration | UdaYantu"
+        description="Register with Indian mobile OTP or sign in to your UdaYantu student dashboard to unlock your complete career report and 90-day cohort."
+        canonicalPath="/login"
         noIndex={true}
       />
-      <Navbar />
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4 pt-24">
-        <Card className="w-full max-w-md border-2 border-primary/20 shadow-xl">
-          <CardHeader className="space-y-1 text-center">
-            <div className="flex items-center justify-between mb-2">
-              <CardTitle className="text-3xl font-bold text-primary">UdaYantu</CardTitle>
-              <button
-                onClick={() => setLanguage(language === "en" ? "hi" : "en")}
-                className="px-2 py-1 rounded-lg border border-border hover:bg-muted transition-colors text-xs font-medium"
-                data-testid="button-toggle-language"
-              >
-                {language === "en" ? "हिंदी" : "English"}
-              </button>
-            </div>
-            <CardDescription className="text-base">
-              {otpSent 
-                ? t.verifyMobile
-                : t.enterMobileToStart}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={otpSent ? handleVerifyOTP : handlePhoneSubmit} className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="phone" className="text-base">
-                  {t.mobileNumber}
-                </Label>
-                <div className="flex gap-2">
-                  <div className="flex items-center px-3 py-2 border rounded-md bg-muted">
-                    <span className="text-sm font-medium">+91</span>
-                  </div>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder={t.enter10Digit}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    required
-                    disabled={loading || otpSent}
-                    maxLength={10}
-                    className="flex-1"
-                    data-testid="input-phone"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {otpSent ? t.otpSentTo : t.checking}
-                </p>
+
+      <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+        <Navbar />
+
+        <main className="flex-1 pt-24 pb-16 px-4 sm:px-6 flex items-center justify-center">
+          <div className="w-full max-w-md space-y-5">
+            {hasSavedAssessment && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  Your completed career assessment session is preserved and will unlock automatically inside your Student Dashboard.
+                </span>
               </div>
+            )}
 
-              {otpSent && (
-                <div className="space-y-2">
-                  <Label htmlFor="otp" className="text-base">
-                    {t.enterOTP}
-                  </Label>
-                  <div className="flex justify-center">
-                    <InputOTP
-                      maxLength={6}
-                      value={otp}
-                      onChange={setOtp}
-                      disabled={loading}
-                    >
-                      <InputOTPGroup>
-                        <InputOTPSlot index={0} />
-                        <InputOTPSlot index={1} />
-                        <InputOTPSlot index={2} />
-                        <InputOTPSlot index={3} />
-                        <InputOTPSlot index={4} />
-                        <InputOTPSlot index={5} />
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    {t.enter6Digit}
-                  </p>
-                  <Button
+            <Card className="border-slate-200 bg-white shadow-sm">
+              <CardHeader className="pb-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                  UdaYantu Student Portal
+                </p>
+                <CardTitle className="text-2xl">
+                  {mode === "register"
+                    ? "Create Student Account"
+                    : mode === "login"
+                    ? "Student Sign In"
+                    : "Recover Account Password"}
+                </CardTitle>
+                <CardDescription>
+                  {mode === "register"
+                    ? "Verify your Indian +91 mobile number to unlock your full 3-track career report."
+                    : mode === "login"
+                    ? "Sign in with your registered email or 10-digit Indian mobile number."
+                    : "Reset your password securely using your registered email address."}
+                </CardDescription>
+
+                <div className="grid grid-cols-2 gap-2 pt-3">
+                  <button
                     type="button"
-                    variant="link"
                     onClick={() => {
-                      setOtpSent(false);
-                      setOtp("");
+                      setMode("register");
+                      setError(null);
                     }}
-                    className="w-full"
-                    data-testid="button-change-mobile"
+                    className={`rounded-lg py-2.5 text-sm font-semibold border transition-colors min-h-[44px] ${
+                      mode === "register"
+                        ? "bg-primary text-white border-primary"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
                   >
-                    {t.changeMobile}
-                  </Button>
-                </div>
-              )}
-
-              <Button 
-                type="submit" 
-                className="w-full" 
-                disabled={loading || isCheckingUser}
-                size="lg"
-              >
-                {(loading || isCheckingUser) ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {isCheckingUser ? t.checking2 : "Please wait..."}
-                  </>
-                ) : otpSent ? (
-                  <>
-                    <LogIn className="mr-2 h-4 w-4" />
-                    {t.verifyOTP}
-                  </>
-                ) : (
-                  <>
-                    <Smartphone className="mr-2 h-4 w-4" />
-                    {t.continue}
-                  </>
-                )}
-              </Button>
-
-              {!otpSent && (
-                <>
-                  <div className="relative flex py-2 items-center">
-                    <div className="flex-grow border-t border-muted"></div>
-                    <span className="flex-shrink mx-4 text-muted-foreground text-xs font-bold uppercase tracking-wider">OR</span>
-                    <div className="flex-grow border-t border-muted"></div>
-                  </div>
-                  <Button
+                    <UserPlus className="w-4 h-4 inline mr-1.5" />
+                    Register
+                  </button>
+                  <button
                     type="button"
-                    variant="outline"
-                    onClick={handleGoogleSignIn}
-                    disabled={loading}
-                    className="w-full bg-white hover:bg-slate-50 border-border text-slate-700 font-semibold h-11 transition-all flex items-center justify-center gap-2"
+                    onClick={() => {
+                      setMode("login");
+                      setError(null);
+                    }}
+                    className={`rounded-lg py-2.5 text-sm font-semibold border transition-colors min-h-[44px] ${
+                      mode === "login"
+                        ? "bg-primary text-white border-primary"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
                   >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.54 14.98 1 12 1 7.35 1 3.37 3.65 1.39 7.56l3.85 2.99c.92-2.77 3.5-4.51 6.76-4.51z"/>
-                      <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58l3.7 2.87c2.16-2 3.72-4.94 3.72-8.69z"/>
-                      <path fill="#FBBC05" d="M5.24 14.75c-.24-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29L1.39 7.18C.5 8.93 0 10.91 0 13s.5 4.07 1.39 5.82l3.85-3.07z"/>
-                      <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.7-2.87c-1.12.75-2.56 1.22-4.26 1.22-3.26 0-5.84-1.74-6.76-4.51L1.39 17C3.37 20.91 7.35 23 12 23z"/>
-                    </svg>
-                    Continue with Google
-                  </Button>
-                </>
-              )}
-            </form>
+                    <KeyRound className="w-4 h-4 inline mr-1.5" />
+                    Sign In
+                  </button>
+                </div>
+              </CardHeader>
 
-            <div className="mt-6 text-center">
-              <Button 
-                variant="link" 
-                onClick={() => navigate("/")}
-                className="text-sm text-muted-foreground"
-                data-testid="button-back-home"
-              >
-                {t.backHome}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+              <CardContent className="space-y-4">
+                {error && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 px-3.5 py-2.5 text-sm text-red-700">
+                    {error}
+                  </div>
+                )}
+                {notice && (
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-sm text-emerald-800">
+                    {notice}
+                  </div>
+                )}
+
+                {mode === "register" && (
+                  <form onSubmit={handleRegister} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="stu-fullname">Full Name</Label>
+                      <Input
+                        id="stu-fullname"
+                        required
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="e.g. Anjali Kumari"
+                        className="min-h-[44px]"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="stu-email">Email Address</Label>
+                      <Input
+                        id="stu-email"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="anjali@example.com"
+                        className="min-h-[44px]"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="stu-phone">Indian Mobile Number (+91)</Label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                          <Input
+                            id="stu-phone"
+                            type="tel"
+                            required
+                            maxLength={10}
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                            placeholder="10-digit mobile"
+                            className="pl-9 min-h-[44px]"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleRequestOtp}
+                          disabled={loading}
+                          className="min-h-[44px] shrink-0"
+                        >
+                          {otpSent ? "Resend OTP" : "Send OTP"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {otpSent && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="stu-otp">6-Digit Mobile OTP</Label>
+                        <Input
+                          id="stu-otp"
+                          required
+                          maxLength={6}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          placeholder="Enter 6-digit OTP"
+                          className="min-h-[44px] tracking-widest font-mono"
+                        />
+                        {sandboxOtpHint && (
+                          <p className="text-xs text-slate-500">
+                            Sandbox verification OTP: <strong className="font-mono">{sandboxOtpHint}</strong>
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="stu-password">Create Password (min 8 characters)</Label>
+                      <Input
+                        id="stu-password"
+                        type="password"
+                        required
+                        minLength={8}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Minimum 8 characters"
+                        className="min-h-[44px]"
+                      />
+                    </div>
+
+                    <Button type="submit" disabled={loading} className="w-full min-h-[48px] font-semibold">
+                      {loading ? "Creating Account..." : "Create Account & Open Dashboard"}
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </form>
+                )}
+
+                {mode === "login" && (
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="login-id">Email or 10-Digit Mobile Number</Label>
+                      <Input
+                        id="login-id"
+                        required
+                        value={loginIdentifier}
+                        onChange={(e) => setLoginIdentifier(e.target.value)}
+                        placeholder="Email or 9876543210"
+                        className="min-h-[44px]"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="login-pw">Password</Label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMode("recovery");
+                            setError(null);
+                            setNotice(null);
+                          }}
+                          className="text-xs text-primary font-medium hover:underline"
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                      <Input
+                        id="login-pw"
+                        type="password"
+                        required
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="Enter password"
+                        className="min-h-[44px]"
+                      />
+                    </div>
+
+                    <Button type="submit" disabled={loading} className="w-full min-h-[48px] font-semibold">
+                      {loading ? "Signing In..." : "Sign In to My Dashboard"}
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </form>
+                )}
+
+                {mode === "recovery" && (
+                  <div className="space-y-4">
+                    {!recoveryCodeSent ? (
+                      <form onSubmit={handleRequestRecovery} className="space-y-4">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rec-email">Registered Email Address</Label>
+                          <div className="relative">
+                            <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                            <Input
+                              id="rec-email"
+                              type="email"
+                              required
+                              value={recoveryEmail}
+                              onChange={(e) => setRecoveryEmail(e.target.value)}
+                              placeholder="you@example.com"
+                              className="pl-9 min-h-[44px]"
+                            />
+                          </div>
+                        </div>
+                        <Button type="submit" disabled={loading} className="w-full min-h-[44px]">
+                          Send Recovery Code
+                        </Button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleResetPassword} className="space-y-4">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rec-code">6-Digit Recovery Code</Label>
+                          <Input
+                            id="rec-code"
+                            required
+                            value={recoveryCode}
+                            onChange={(e) => setRecoveryCode(e.target.value)}
+                            className="min-h-[44px] font-mono"
+                          />
+                          {recoveryHint && (
+                            <p className="text-xs text-slate-500">
+                              Sandbox recovery code: <strong className="font-mono">{recoveryHint}</strong>
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="rec-pw">New Password</Label>
+                          <Input
+                            id="rec-pw"
+                            type="password"
+                            required
+                            minLength={8}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="min-h-[44px]"
+                          />
+                        </div>
+                        <Button type="submit" disabled={loading} className="w-full min-h-[44px]">
+                          Update Password
+                        </Button>
+                      </form>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setMode("login")}
+                      className="text-xs text-slate-600 hover:underline w-full text-center"
+                    >
+                      Back to Sign In
+                    </button>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                  <span className="inline-flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Secure OTP &amp; Session
+                  </span>
+                  <Link to="/employer/login" className="text-primary font-medium hover:underline">
+                    Hiring as an Employer? →
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+
+        <Footer />
       </div>
     </>
   );
-}
+};
+
+export default Auth;

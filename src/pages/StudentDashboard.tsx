@@ -1,865 +1,1084 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
-import { Navbar } from "@/components/Navbar";
-import { SEOHead } from "@/components/SEOHead";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { 
-  User, 
-  CreditCard, 
-  FileText, 
-  BookOpen, 
-  Award, 
-  AlertCircle,
+import { useCallback, useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Award,
+  BookOpen,
+  Calendar,
   CheckCircle2,
   Clock,
+  Compass,
+  Download,
+  ExternalLink,
+  FileText,
   LogOut,
-  Play,
-  Trophy,
-  Flame,
-  Zap,
-  Target,
-  ArrowRight,
-  Smartphone,
-  Calendar,
-  Shield
+  Mail,
+  PlayCircle,
+  ShieldCheck,
+  Sparkles,
+  Video,
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { AssessmentTaker } from "@/components/student/AssessmentTaker";
-import { ProfileEditor } from "@/components/student/ProfileEditor";
-import { OnboardingWizard } from "@/components/student/OnboardingWizard";
-import { ReadinessCard, type ToolsProficiency, type MentorNote } from "@/components/student/ReadinessCard";
-import { AssessmentsPanel, type AssessmentItem } from "@/components/student/AssessmentsPanel";
-import { InterviewTimeline, type Interview } from "@/components/student/InterviewTimeline";
-import { TransparencySection, type GuaranteeItem } from "@/components/student/TransparencySection";
-import { ConsentCenter, RefundDashboard, DataRequestPanel } from "@/components/compliance";
-import { useStudentReadiness } from "@/hooks/useStudentReadiness";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SEOHead } from "@/components/SEOHead";
+import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  getAnonymousAssessmentToken,
+  platformApi,
+  type StudentDashboardDto,
+} from "@/lib/platformApi";
+import { trackFunnelStage } from "@/lib/funnelAnalytics";
 
-interface StudentData {
-  id?: string;
-  user_id?: string;
-  full_name?: string;
-  email?: string;
-  phone?: string;
-  status?: string;
-  payment_status?: string;
-  desired_role?: string;
-  role_recommendation?: string;
-  final_role?: string;
-  assessments_progress?: Record<string, unknown>;
-  created_at?: string;
-  [key: string]: unknown;
-}
+type DashboardTab = "learning" | "report" | "exam" | "career" | "refund";
 
-interface Assessment {
-  id: string;
-  type: string;
-  score?: number;
-  completed_at?: string;
-  [key: string]: unknown;
-}
-
-const LITE_MODE_KEY = "udayantu_lite_mode";
-
-export default function StudentDashboard() {
+const StudentDashboard = () => {
   const navigate = useNavigate();
-  const { user, loading: authLoading, signOut } = useAuth();
-  const { toast } = useToast();
-  const [registration, setRegistration] = useState<StudentData | null>(null);
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [attemptData, setAttemptData] = useState<Record<string, unknown>>({});
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { platformUser, loading: authLoading, signOut } = useAuth();
+
+  const initialTab = (searchParams.get("tab") as DashboardTab) || "learning";
+  const [activeTab, setActiveTab] = useState<DashboardTab>(initialTab);
+  const [data, setData] = useState<StudentDashboardDto | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeAssessment, setActiveAssessment] = useState<string | null>(null);
-  const [showRecommendation, setShowRecommendation] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [language, setLanguage] = useState<"en" | "hi">("hi");
-  const [liteMode, setLiteMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(LITE_MODE_KEY) === "true";
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
-  const toggleLiteMode = () => {
-    const newValue = !liteMode;
-    setLiteMode(newValue);
-    localStorage.setItem(LITE_MODE_KEY, String(newValue));
-  };
+  // Email verify state
+  const [emailCode, setEmailCode] = useState(
+    () => sessionStorage.getItem("udayantu_email_verify_hint") || ""
+  );
 
-  const { readinessData, readyPacketEmitted, loading: readinessLoading } = useStudentReadiness({
-    studentId: registration?.id || "",
-    studentName: registration?.full_name || "",
-    paymentStatus: registration?.payment_status || "",
-    currentStatus: registration?.status || "",
-  });
+  // Module video player & assignment note state
+  const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
+  const [assignmentNotes, setAssignmentNotes] = useState<Record<string, string>>({});
 
-  const getInterviewsData = (): Interview[] => {
-    return [];
-  };
+  // Final exam state
+  const [examQuestions, setExamQuestions] = useState<
+    Array<{
+      id: string;
+      sectionId: string;
+      sectionTitle: string;
+      prompt: string;
+      options: Array<{ id: string; label: string }>;
+    }>
+  >([]);
+  const [examAnswers, setExamAnswers] = useState<Record<string, string>>({});
+  const [examLoaded, setExamLoaded] = useState(false);
 
-  const getGuaranteesData = (): GuaranteeItem[] => {
-    const isPaid = registration?.payment_status === "paid";
-    const assessmentCount = Object.keys(registration?.assessments_progress || {}).length;
-    
-    return [
-      {
-        id: "placement",
-        title: language === "hi" ? "प्लेसमेंट गारंटी" : "Placement Guarantee",
-        description: language === "hi" 
-          ? "6 महीने के भीतर नौकरी या पूर्ण रिफंड" 
-          : "Job within 6 months or full refund",
-        status: registration?.status === "joined" ? "fulfilled" : isPaid ? "active" : "in_progress",
-      },
-      {
-        id: "training",
-        title: language === "hi" ? "प्रशिक्षण पूर्णता" : "Training Completion",
-        description: language === "hi" 
-          ? "सभी मॉड्यूल और मूल्यांकन पूरे करें" 
-          : "Complete all modules and assessments",
-        status: assessmentCount >= 4 ? "fulfilled" : assessmentCount > 0 ? "in_progress" : "active",
-        progress: (assessmentCount / 4) * 100,
-      },
-      {
-        id: "mentorship",
-        title: language === "hi" ? "मेंटरशिप सहायता" : "Mentorship Support",
-        description: language === "hi" 
-          ? "समर्पित मेंटर द्वारा मार्गदर्शन" 
-          : "Guidance from dedicated mentor",
-        status: isPaid ? "active" : "in_progress",
-      },
-      {
-        id: "interview_prep",
-        title: language === "hi" ? "साक्षात्कार तैयारी" : "Interview Preparation",
-        description: language === "hi" 
-          ? "मॉक इंटरव्यू और फीडबैक" 
-          : "Mock interviews and feedback",
-        status: ["ready", "interviewing"].includes(registration?.status || "") ? "in_progress" : 
-                registration?.status === "offered" || registration?.status === "joined" ? "fulfilled" : "active",
-      },
-    ];
-  };
+  // Refund request reason
+  const [refundReason, setRefundReason] = useState(
+    "120 calendar days completed after final assessment pass without qualifying job selection."
+  );
 
-  // Bilingual Support
-  const text = {
-    en: {
-      authError: "Authentication Required",
-      authErrorDesc: "Please log in to continue",
-      loading: "Loading your dashboard...",
-      regNotFound: "Registration Not Found",
-      regNotFoundDesc: "Please complete your registration first.",
-      goHome: "Go to Home",
-      welcome: "Welcome Back",
-      trackProgress: "Track your progress and master your skills",
-      signOut: "Sign Out",
-      status: "Status",
-      assessments: "Assessments",
-      yourRole: "Your Role",
-      payment: "Payment",
-      overview: "Overview",
-      training: "Training",
-      profile: "Profile",
-      pending: "Pending",
-      readiness: "Readiness",
-      interviews: "Interviews",
-      transparency: "Guarantees",
-      liteMode: "Lite Mode",
-      liteModeDesc: "Text-first, faster loading",
-      readyForPlacement: "Ready for Placement",
-    },
-    hi: {
-      authError: "प्रमाणीकरण आवश्यक",
-      authErrorDesc: "जारी रखने के लिए कृपया लॉगिन करें",
-      loading: "आपका डैशबोर्ड लोड हो रहा है...",
-      regNotFound: "पंजीकरण नहीं मिला",
-      regNotFoundDesc: "कृपया पहले अपना पंजीकरण पूरा करें।",
-      goHome: "होम पर जाएं",
-      welcome: "स्वागत है वापसी",
-      trackProgress: "अपनी प्रगति ट्रैक करें और अपने कौशल में माहिर बनें",
-      signOut: "साइन आउट",
-      status: "स्थिति",
-      assessments: "मूल्यांकन",
-      yourRole: "आपकी भूमिका",
-      payment: "भुगतान",
-      overview: "सारांश",
-      training: "प्रशिक्षण",
-      profile: "प्रोफ़ाइल",
-      pending: "लंबित",
-      readiness: "तैयारी",
-      interviews: "साक्षात्कार",
-      transparency: "गारंटी",
-      liteMode: "लाइट मोड",
-      liteModeDesc: "टेक्स्ट-फर्स्ट, तेज़ लोडिंग",
-      readyForPlacement: "प्लेसमेंट के लिए तैयार",
-    },
-  };
-
-  const t = text[language];
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      toast({
-        title: t.authError,
-        description: t.authErrorDesc,
-        variant: "destructive",
-      });
-      navigate("/");
-    }
-  }, [user, authLoading, navigate, toast, language]);
-
-  useEffect(() => {
-    const fetchStudentData = async () => {
-      if (!user) return;
-
-      try {
-        const { data: regData, error: regError } = await supabase
-          .from('student_registrations')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (regError) throw regError;
-        setRegistration((regData as unknown) as StudentData);
-
-        if (regData?.payment_status !== 'paid') {
-          toast({
-            title: "Book Your Slot Now. Get Job Ready.",
-            description: "Complete your payment to access the dashboard",
-            variant: "destructive",
-          });
-          navigate("/payment");
-          return;
-        }
-
-        const { data: assessData, error: assessError } = await supabase
-          .from('assessments')
-          .select('*')
-          .eq('student_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (assessError) throw assessError;
-        setAssessments(assessData || []);
-
-        const { data: attemptsData } = await supabase
-          .from('assessment_attempts')
-          .select('*')
-          .eq('student_id', user.id);
-
-        const attemptsMap: Record<string, unknown> = {};
-        attemptsData?.forEach(attempt => {
-          attemptsMap[attempt.assessment_type] = attempt;
-        });
-        setAttemptData(attemptsMap);
-
-        const completedAssessments = assessData?.filter(a => a.completed_at && ['aptitude', 'psychometric', 'gk'].includes(a.type)) || [];
-        if (completedAssessments.length === 3 && !regData?.role_recommendation) {
-          await generateRoleRecommendation(completedAssessments, (regData as unknown) as StudentData);
-        }
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "Failed to load data";
-        toast({
-          title: "Error",
-          description: message,
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStudentData();
-  }, [user, toast]);
-
-  const generateRoleRecommendation = async (completedAssessments: Assessment[], regData: StudentData) => {
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const aptitude = completedAssessments.find(a => a.type === 'aptitude');
-      const psychometric = completedAssessments.find(a => a.type === 'psychometric');
-      const gk = completedAssessments.find(a => a.type === 'gk');
+      // Automatically claim saved anonymous psychometric session if present
+      const anonToken = getAnonymousAssessmentToken();
+      if (anonToken) {
+        try {
+          await platformApi.claimAssessment(anonToken);
+        } catch {
+          // already claimed or expired — safe to ignore
+        }
+      }
+      const dash = await platformApi.getStudentDashboard();
+      setData(dash);
+      if (dash.course?.modules[0]?.youtubeUrl && !activeVideoUrl) {
+        setActiveVideoUrl(dash.course.modules[0].youtubeUrl);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load your student dashboard.");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeVideoUrl]);
 
-      if (!aptitude || !psychometric || !gk) return;
+  useEffect(() => {
+    if (authLoading) return;
+    if (!platformUser) {
+      navigate("/login?returnTo=/dashboard", { replace: true });
+      return;
+    }
+    if (platformUser.role !== "student") {
+      navigate("/employer/dashboard", { replace: true });
+      return;
+    }
+    loadDashboard();
+  }, [authLoading, platformUser, navigate, loadDashboard]);
 
-      toast({
-        title: "Analyzing Your Results",
-        description: "Generating personalized role recommendation...",
-      });
+  const changeTab = (tab: DashboardTab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab }, { replace: true });
+    setNotice(null);
+    setError(null);
+  };
 
-      const { data, error } = await supabase.functions.invoke('recommend-role', {
-        body: {
-          aptitudeScore: aptitude.score,
-          psychometricProfile: ((aptitude as unknown as Record<string, unknown>)?.analysis as Record<string, unknown>)?.personalityProfile || {},
-          gkScore: gk.score,
-          desiredRole: regData.desired_role,
-        },
-      });
+  const handleVerifyEmail = async () => {
+    if (!emailCode.trim()) return;
+    setBusyAction("verify-email");
+    setError(null);
+    try {
+      await platformApi.verifyEmail(emailCode.trim());
+      sessionStorage.removeItem("udayantu_email_verify_hint");
+      setNotice("Email address verified successfully.");
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid email verification code.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
-      if (error) throw error;
+  const handleCompleteModule = async (moduleId: string) => {
+    setBusyAction(`mod-${moduleId}`);
+    setError(null);
+    try {
+      await platformApi.completeModule(moduleId);
+      trackFunnelStage("learning_started");
+      setNotice("Module marked complete and saved to your cohort progress.");
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update module progress.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
-      await supabase
-        .from('student_registrations')
-        .update({
-          role_recommendation: data.recommendedRole,
-        })
-        .eq('id', regData.id);
+  const handleSubmitAssignment = async (assignmentId: string) => {
+    const notes = (assignmentNotes[assignmentId] || "").trim();
+    if (notes.length < 10) {
+      setError("Please add a brief summary of your completed assignment (at least 10 characters).");
+      return;
+    }
+    setBusyAction(`asg-${assignmentId}`);
+    setError(null);
+    try {
+      await platformApi.submitAssignment(assignmentId, notes);
+      setNotice("Assignment submitted successfully.");
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not submit assignment.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
-      setShowRecommendation(true);
-      setRegistration({ ...regData, role_recommendation: data.recommendedRole });
+  const handleAttendLiveClass = async (classId: string, joinUrl: string) => {
+    setBusyAction(`live-${classId}`);
+    try {
+      await platformApi.attendLiveClass(classId);
+      setNotice("Live class attendance recorded. Opening session link...");
+      await loadDashboard();
+      window.open(joinUrl, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not record attendance.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
-      toast({
-        title: "Role Recommendation Ready!",
-        description: `Based on your comprehensive assessment results`,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Error generating recommendation";
-      console.error(message);
-      toast({
-        title: "Recommendation Error",
-        description: "Unable to generate recommendation. Please contact support.",
-        variant: "destructive",
-      });
+  const handleLoadFinalExam = async () => {
+    setBusyAction("load-exam");
+    setError(null);
+    try {
+      const res = await platformApi.getFinalAssessmentQuestions();
+      setExamQuestions(res.questions);
+      setExamLoaded(true);
+      trackFunnelStage("final_assessment_attempted");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load final assessment questions.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleSubmitFinalExam = async () => {
+    if (Object.keys(examAnswers).length < examQuestions.length) {
+      setError("Please answer all final examination questions before submitting.");
+      return;
+    }
+    setBusyAction("submit-exam");
+    setError(null);
+    try {
+      const attempt = await platformApi.submitFinalAssessment(examAnswers);
+      if (attempt.result.qualified) {
+        trackFunnelStage("final_assessment_passed");
+        setNotice(
+          `Congratulations! You scored ${attempt.result.overallScorePercent}% and passed the Final Examination. Your 120-day Plan A refund clock (if applicable) and employer eligibility are now active.`
+        );
+      } else {
+        setNotice(
+          `Attempt #${attempt.attemptNumber} graded: ${attempt.result.overallScorePercent}%. ${attempt.result.reason}`
+        );
+      }
+      setExamLoaded(false);
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not grade final examination.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleToggleConsent = async (nextValue: boolean) => {
+    setBusyAction("consent");
+    setError(null);
+    try {
+      await platformApi.updateRecruitmentConsent(nextValue);
+      if (nextValue) trackFunnelStage("recruitment_consent_granted");
+      setNotice(
+        nextValue
+          ? "Recruitment visibility consent granted. Approved employers can now discover your verified profile."
+          : "Recruitment visibility consent revoked immediately. Employers can no longer view your profile."
+      );
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update recruitment consent.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleAcceptOffer = async (offerId: string) => {
+    setBusyAction(`offer-${offerId}`);
+    setError(null);
+    try {
+      const res = await platformApi.acceptWrittenOffer(offerId);
+      trackFunnelStage("offer_accepted");
+      setNotice(
+        `Written offer accepted. Tuition obligation recorded (${res.tuitionObligation.tuitionPercent}% of CTC, GST inclusive; admission fee not adjusted).`
+      );
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not accept written offer.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleRequestRefund = async () => {
+    setBusyAction("refund");
+    setError(null);
+    try {
+      await platformApi.requestAdmissionRefund(refundReason);
+      setNotice("Plan A admission refund request submitted for Admin verification.");
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Refund request could not be submitted.");
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const handleSignOut = async () => {
     await signOut();
-    navigate("/");
-  };
-
-  const getPaymentStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-      paid: "default",
-      unpaid: "destructive",
-      pending: "secondary",
-    };
-    return <Badge variant={variants[status] || "outline"}>{status}</Badge>;
+    navigate("/login", { replace: true });
   };
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">{t.loading}</p>
-        </div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-sm text-slate-600">Loading your UdaYantu Student Dashboard...</p>
       </div>
     );
   }
 
-  if (!registration) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
-        <Navbar />
-        <div className="container mx-auto px-4 py-24 text-center">
-          <AlertCircle className="h-16 w-16 text-destructive mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">{t.regNotFound}</h1>
-          <p className="text-muted-foreground mb-6">
-            {t.regNotFoundDesc}
-          </p>
-          <Button onClick={() => navigate("/")}>{t.goHome}</Button>
-        </div>
-      </div>
-    );
-  }
-
-  const isProfileIncomplete = registration && (
-    !registration.full_name ||
-    !registration.email ||
-    !registration.qualification ||
-    !registration.desired_role ||
-    !registration.state ||
-    !registration.district ||
-    !registration.location
-  );
-
-  const assessmentProgress = Object.keys(registration.assessments_progress || {}).length;
-  const totalAssessments = 4;
-  const progressPercentage = (assessmentProgress / totalAssessments) * 100;
+  const topRecommendedTrack = data?.fullCareerReport?.topTracks[0] ?? null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
+    <>
       <SEOHead
         title="Student Dashboard | UdaYantu"
-        description="Private UdaYantu student learning and assessment dashboard."
+        description="Manage your career report, 90-day cohort classes, final examination, recruitment consent, written offers, and admission refund lifecycle."
+        canonicalPath="/dashboard"
         noIndex={true}
       />
-      <Navbar />
-      
-      <div className="container mx-auto px-4 py-8 md:py-12">
-        {/* Hero Header */}
-        <div className="relative mb-12 rounded-2xl overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent backdrop-blur-sm"></div>
-          <div className="relative p-8 md:p-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-            <div>
-              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent mb-3">
-                {t.welcome}, {registration.full_name?.split(' ')[0]}!
-              </h1>
-              <p className="text-lg text-muted-foreground">
-                {t.trackProgress}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {readyPacketEmitted && (
-                <Badge variant="default" className="gap-1 bg-green-600" data-testid="badge-ready-packet">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {t.readyForPlacement}
-                </Badge>
-              )}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background/50">
-                <Smartphone className="h-4 w-4 text-muted-foreground" />
-                <Label htmlFor="lite-mode" className="text-xs text-muted-foreground cursor-pointer">
-                  {t.liteMode}
-                </Label>
-                <Switch 
-                  id="lite-mode" 
-                  checked={liteMode} 
-                  onCheckedChange={toggleLiteMode}
-                  data-testid="switch-lite-mode"
-                />
-              </div>
-              <button
-                onClick={() => setLanguage(language === "en" ? "hi" : "en")}
-                className="px-3 py-2 rounded-lg border border-border hover:bg-muted transition-colors text-sm font-medium"
-                data-testid="button-toggle-language"
-              >
-                {language === "en" ? "हिंदी" : "English"}
-              </button>
-              <Button 
-                variant="outline" 
-                onClick={handleSignOut}
-                className="backdrop-blur-sm border-primary/20 hover:bg-primary/5"
-                data-testid="button-signout"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                {t.signOut}
-              </Button>
-            </div>
-          </div>
-        </div>
 
-        {/* Stats Grid - Modern Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          {/* Status Card */}
-          <Card className="border-0 bg-gradient-to-br from-blue-500/10 to-blue-600/5 backdrop-blur-sm hover:shadow-lg transition-all duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                <Zap className="h-4 w-4" />
-                {t.status}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-foreground capitalize">{registration.status}</div>
-              <div className="mt-2">{getPaymentStatusBadge(registration.payment_status || '')}</div>
-            </CardContent>
-          </Card>
+      <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+        <Navbar />
 
-          {/* Assessments Card */}
-          <Card className="border-0 bg-gradient-to-br from-purple-500/10 to-purple-600/5 backdrop-blur-sm hover:shadow-lg transition-all duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2 text-purple-600 dark:text-purple-400">
-                <BookOpen className="h-4 w-4" />
-                {t.assessments}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-foreground">{assessmentProgress}/{totalAssessments}</div>
-              <Progress value={progressPercentage} className="mt-3 h-2" />
-            </CardContent>
-          </Card>
-
-          {/* Role Card */}
-          <Card className="border-0 bg-gradient-to-br from-amber-500/10 to-amber-600/5 backdrop-blur-sm hover:shadow-lg transition-all duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                <Target className="h-4 w-4" />
-                {t.yourRole}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-foreground truncate">
-                {registration.role_recommendation || registration.desired_role || t.pending}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Payment Card */}
-          <Card className="border-0 bg-gradient-to-br from-green-500/10 to-green-600/5 backdrop-blur-sm hover:shadow-lg transition-all duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2 text-green-600 dark:text-green-400">
-                <CreditCard className="h-4 w-4" />
-                {t.payment}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-foreground">
-                {registration.payment_status === 'paid' ? '₹5,321' : '₹0'}
-              </div>
-              <div className="mt-2">{getPaymentStatusBadge(registration.payment_status || '')}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Tabs */}
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 bg-muted/40 backdrop-blur-sm border border-primary/10">
-            <TabsTrigger value="overview" className="text-xs sm:text-sm">{t.overview}</TabsTrigger>
-            <TabsTrigger value="readiness" className="text-xs sm:text-sm">{t.readiness}</TabsTrigger>
-            <TabsTrigger value="assessments" className="text-xs sm:text-sm">{t.assessments}</TabsTrigger>
-            <TabsTrigger value="interviews" className="text-xs sm:text-sm">{t.interviews}</TabsTrigger>
-            <TabsTrigger value="transparency" className="text-xs sm:text-sm">{t.transparency}</TabsTrigger>
-            <TabsTrigger value="profile" className="text-xs sm:text-sm">{t.profile}</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-4">
-            <Card className="border-0 bg-gradient-to-br from-muted/50 to-muted/30 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Flame className="h-5 w-5 text-orange-500" />
-                  Your Learning Path
-                </CardTitle>
-                <CardDescription>
-                  Complete these steps to start your training
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-start gap-4 p-4 rounded-lg bg-background/50 border border-primary/10">
-                  <CheckCircle2 className="h-6 w-6 text-green-500 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-foreground">Registration Complete</h4>
-                    <p className="text-sm text-muted-foreground">You've successfully registered</p>
-                  </div>
+        <main className="flex-1 pt-24 pb-16 px-4 sm:px-6">
+          <div className="max-w-5xl mx-auto space-y-6">
+            {/* Minimal Student Header */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                    Student Workspace
+                  </p>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-0.5">
+                    Welcome, {data?.student.fullName}
+                  </h1>
+                  <p className="text-sm text-slate-600 mt-1">
+                    {data?.course
+                      ? `${data.course.titleEn} • ${data.cohort?.name ?? "90-Day Cohort"}`
+                      : topRecommendedTrack
+                      ? `Recommended Track: ${topRecommendedTrack.name} (${topRecommendedTrack.alignmentPercent}% Fit)`
+                      : "Start your free psychometric assessment or select a 90-day cohort."}
+                  </p>
                 </div>
 
-                <div className="flex items-start gap-4 p-4 rounded-lg bg-background/50 border border-primary/10">
-                  {registration.payment_status === 'paid' ? (
-                    <CheckCircle2 className="h-6 w-6 text-green-500 flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <Clock className="h-6 w-6 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div className="flex flex-wrap items-center gap-2">
+                  {!data?.enrollment && (
+                    <Button
+                      className="min-h-[44px]"
+                      onClick={() =>
+                        navigate(
+                          topRecommendedTrack
+                            ? `/payment?courseId=course-${topRecommendedTrack.trackId}`
+                            : "/payment"
+                        )
+                      }
+                    >
+                      Explore My Recommended Course
+                    </Button>
                   )}
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-foreground">Payment</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {registration.payment_status === 'paid' 
-                        ? 'Payment completed successfully'
-                        : 'Complete payment to continue'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4 p-4 rounded-lg bg-background/50 border border-primary/10">
-                  {assessmentProgress > 0 ? (
-                    <Clock className="h-6 w-6 text-yellow-500 flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <div className="h-6 w-6 rounded-full border-2 border-muted flex-shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-foreground">Complete Assessments</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {assessmentProgress} of {totalAssessments} completed
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4 p-4 rounded-lg bg-background/50 border border-primary/10">
-                  <div className="h-6 w-6 rounded-full border-2 border-muted flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-foreground">Start Training</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Begin your personalized training modules
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="assessments" className="space-y-4">
-            {activeAssessment ? (
-              <AssessmentTaker
-                assessmentType={activeAssessment as 'aptitude' | 'psychometric' | 'gk' | 'final_role'}
-                roleType={registration.role_recommendation || registration.desired_role}
-                onComplete={() => {
-                  setActiveAssessment(null);
-                  window.location.reload();
-                }}
-              />
-            ) : (
-              <>
-                <Card className="border-0 bg-gradient-to-br from-muted/50 to-muted/30 backdrop-blur-sm">
-                  <CardHeader>
-                    <CardTitle>Take Assessments</CardTitle>
-                    <CardDescription>
-                      Complete all assessments to get your role recommendation
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {/* Aptitude Test */}
-                    <div className="group flex items-center justify-between p-4 rounded-xl border border-primary/10 bg-background/50 hover:bg-primary/5 transition-all duration-300 cursor-pointer">
-                      <div className="flex-1">
-                        <h4 className="font-semibold flex items-center gap-2 text-foreground">
-                          <BookOpen className="h-5 w-5 text-blue-500" />
-                          Aptitude Test
-                        </h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Test your logical reasoning and problem-solving skills
-                        </p>
-                      </div>
-                      {assessments.some(a => a.type === 'aptitude' && a.completed_at) ? (
-                        <Badge variant="default" className="ml-2">
-                          <CheckCircle2 className="mr-1 h-3 w-3" />
-                          Completed
-                        </Badge>
-                      ) : (
-                        <Button 
-                          onClick={() => setActiveAssessment('aptitude')}
-                          disabled={registration.payment_status !== 'paid'}
-                          className="ml-2"
-                        >
-                          <Play className="mr-2 h-4 w-4" />
-                          Start
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* Psychometric Test */}
-                    <div className="group flex items-center justify-between p-4 rounded-xl border border-primary/10 bg-background/50 hover:bg-primary/5 transition-all duration-300 cursor-pointer">
-                      <div className="flex-1">
-                        <h4 className="font-semibold flex items-center gap-2 text-foreground">
-                          <User className="h-5 w-5 text-purple-500" />
-                          Psychometric Test
-                        </h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Understand your personality and work style
-                        </p>
-                      </div>
-                      {assessments.some(a => a.type === 'psychometric' && a.completed_at) ? (
-                        <Badge variant="default" className="ml-2">
-                          <CheckCircle2 className="mr-1 h-3 w-3" />
-                          Completed
-                        </Badge>
-                      ) : (
-                        <Button 
-                          onClick={() => setActiveAssessment('psychometric')}
-                          disabled={registration.payment_status !== 'paid'}
-                          className="ml-2"
-                        >
-                          <Play className="mr-2 h-4 w-4" />
-                          Start
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* GK Test */}
-                    <div className="group flex items-center justify-between p-4 rounded-xl border border-primary/10 bg-background/50 hover:bg-primary/5 transition-all duration-300 cursor-pointer">
-                      <div className="flex-1">
-                        <h4 className="font-semibold flex items-center gap-2 text-foreground">
-                          <Award className="h-5 w-5 text-amber-500" />
-                          General Knowledge Test
-                        </h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Test your business and industry knowledge
-                        </p>
-                      </div>
-                      {assessments.some(a => a.type === 'gk' && a.completed_at) ? (
-                        <Badge variant="default" className="ml-2">
-                          <CheckCircle2 className="mr-1 h-3 w-3" />
-                          Completed
-                        </Badge>
-                      ) : (
-                        <Button 
-                          onClick={() => setActiveAssessment('gk')}
-                          disabled={registration.payment_status !== 'paid'}
-                          className="ml-2"
-                        >
-                          <Play className="mr-2 h-4 w-4" />
-                          Start
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* Final Role Test */}
-                    {registration.role_recommendation && (
-                      <div className="group flex items-center justify-between p-4 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all duration-300 cursor-pointer">
-                        <div className="flex-1">
-                          <h4 className="font-semibold flex items-center gap-2 text-foreground">
-                            <Trophy className="h-5 w-5 text-yellow-500" />
-                            Final Role Test ({registration.role_recommendation})
-                          </h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Advanced test for your recommended role
-                          </p>
-                        </div>
-                        {assessments.some(a => a.type === 'final_role' && a.completed_at) ? (
-                          <Badge variant="default" className="ml-2">
-                            <CheckCircle2 className="mr-1 h-3 w-3" />
-                            Completed
-                          </Badge>
-                        ) : (
-                          <Button 
-                            onClick={() => setActiveAssessment('final_role')}
-                            disabled={registration.payment_status !== 'paid'}
-                            className="ml-2"
-                          >
-                            <Play className="mr-2 h-4 w-4" />
-                            Start
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Assessment History */}
-                <Card className="border-0 bg-gradient-to-br from-muted/50 to-muted/30 backdrop-blur-sm">
-                  <CardHeader>
-                    <CardTitle>Assessment History</CardTitle>
-                    <CardDescription>
-                      View your completed assessments and scores
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {assessments.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                        <p>No assessments completed yet</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {assessments.map((assessment) => (
-                          <div
-                            key={assessment.id}
-                            className="p-4 rounded-lg bg-background/50 border border-primary/10 flex justify-between items-center"
-                          >
-                            <div>
-                              <h5 className="font-semibold capitalize text-foreground">{assessment.type} Test</h5>
-                              <p className="text-sm text-muted-foreground">
-                                Completed on {new Date(assessment.completed_at || '').toLocaleDateString()}
-                              </p>
-                            </div>
-                            {assessment.score && (
-                              <div className="text-right">
-                                <div className="text-2xl font-bold text-primary">{assessment.score}%</div>
-                                <p className="text-xs text-muted-foreground">Score</p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </TabsContent>
-
-          <TabsContent value="readiness" className="space-y-4">
-            {readinessData && (
-              <ReadinessCard
-                toolsProficiency={readinessData.toolsProficiency}
-                languageLevel={readinessData.languageLevel}
-                attendanceStreak={readinessData.attendanceStreak}
-                totalSessions={readinessData.totalSessions}
-                mentorNotes={readinessData.mentorNotes}
-                language={language}
-                liteMode={liteMode}
-              />
-            )}
-          </TabsContent>
-
-          <TabsContent value="interviews" className="space-y-4">
-            <InterviewTimeline
-              interviews={getInterviewsData()}
-              onRequestReschedule={(id) => {
-                toast({
-                  title: language === "hi" ? "अनुरोध भेजा गया" : "Request Sent",
-                  description: language === "hi" 
-                    ? "आपकी SS टीम जल्द ही संपर्क करेगी" 
-                    : "Your SS team will contact you shortly",
-                });
-              }}
-              onContactSupport={() => navigate("/contact")}
-              language={language}
-              liteMode={liteMode}
-            />
-          </TabsContent>
-
-          <TabsContent value="transparency" className="space-y-4">
-            <TransparencySection
-              guarantees={getGuaranteesData()}
-              papEligible={registration.payment_status === "paid"}
-              papStatus={registration.status === "joined" ? "completed" : 
-                        ["ready", "interviewing", "offered"].includes(registration.status || "") ? "in_progress" : "not_started"}
-              refundStatus={registration.payment_status === "paid" ? "not_applicable" : "eligible"}
-              daysInProgram={Math.floor((new Date().getTime() - new Date(registration.created_at || "").getTime()) / (1000 * 60 * 60 * 24))}
-              onViewPolicyDetails={() => window.open("/terms", "_blank")}
-              onContactSupport={() => navigate("/contact")}
-              language={language}
-              liteMode={liteMode}
-            />
-            <RefundDashboard
-              studentId={registration.id}
-              studentName={registration.full_name}
-              role="student"
-              language={language}
-              liteMode={liteMode}
-            />
-            <ConsentCenter
-              userId={user?.id || ""}
-              userType="student"
-              language={language}
-              liteMode={liteMode}
-            />
-            <DataRequestPanel
-              userId={user?.id || ""}
-              userType="student"
-              language={language}
-              liteMode={liteMode}
-            />
-          </TabsContent>
-
-          <TabsContent value="profile" className="space-y-4">
-            {editingProfile ? (
-              <>
-                <ProfileEditor userId={user?.id || ''} />
-                <Button variant="outline" onClick={() => setEditingProfile(false)}>Cancel</Button>
-              </>
-            ) : (
-              <Card className="border-0 bg-gradient-to-br from-muted/50 to-muted/30 backdrop-blur-sm">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Profile Information</CardTitle>
-                  <Button variant="outline" onClick={() => setEditingProfile(true)}>
-                    Edit Profile
+                  <Button variant="outline" className="min-h-[44px]" onClick={handleSignOut}>
+                    <LogOut className="w-4 h-4 mr-1.5" />
+                    Sign Out
                   </Button>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-lg bg-background/50 border border-primary/10">
-                      <p className="text-xs text-muted-foreground">Full Name</p>
-                      <p className="font-semibold text-foreground">{registration.full_name}</p>
+                </div>
+              </div>
+
+              {/* Quick KPI Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-5 border-t border-slate-100 text-sm">
+                <div>
+                  <p className="text-xs text-slate-500">Cohort Progress</p>
+                  <p className="font-bold text-slate-900 text-base">
+                    {data?.enrollment ? `${data.enrollment.learningProgressPercent}%` : "Not Enrolled"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Final Exam (≥75%)</p>
+                  <p className="font-bold text-slate-900 text-base">
+                    {data?.finalAssessment.qualified
+                      ? `Qualified (${data.eligibility?.finalScorePercent}%)`
+                      : data?.finalAssessment.attempts.length
+                      ? `Last: ${data.finalAssessment.attempts[data.finalAssessment.attempts.length - 1].scorePercent}%`
+                      : "Pending"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Recruitment Consent</p>
+                  <p className="font-bold text-slate-900 text-base">
+                    {data?.consent.employerVisibilityGranted ? "Visible to Employers" : "Private (Off)"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Admission Plan</p>
+                  <p className="font-bold text-slate-900 text-base">
+                    {data?.enrollment
+                      ? data.enrollment.planCode === "plan_a_refundable"
+                        ? "Plan A (Refundable)"
+                        : "Plan B (Non-Refundable)"
+                      : "Not Selected"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Cohort Disabled Read-Only Preservation Banner */}
+            {data?.enrollment?.accessNotice && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                <strong>Cohort Read-Only Notice:</strong> {data.enrollment.accessNotice}
+              </div>
+            )}
+
+            {/* Email verification prompt if unverified */}
+            {data && !data.student.emailVerified && (
+              <Card className="border-slate-200 bg-white">
+                <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5 text-sm">
+                    <Mail className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-slate-900">Verify Your Email Address</p>
+                      <p className="text-xs text-slate-600">
+                        Enter the 6-digit verification code sent to {data.student.email}.
+                      </p>
                     </div>
-                    <div className="p-4 rounded-lg bg-background/50 border border-primary/10">
-                      <p className="text-xs text-muted-foreground">Email</p>
-                      <p className="font-semibold text-foreground">{registration.email}</p>
-                    </div>
-                    <div className="p-4 rounded-lg bg-background/50 border border-primary/10">
-                      <p className="text-xs text-muted-foreground">Phone</p>
-                      <p className="font-semibold text-foreground">{registration.phone}</p>
-                    </div>
-                    <div className="p-4 rounded-lg bg-background/50 border border-primary/10">
-                      <p className="text-xs text-muted-foreground">Desired Role</p>
-                      <p className="font-semibold text-foreground">{registration.desired_role}</p>
-                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={emailCode}
+                      onChange={(e) => setEmailCode(e.target.value)}
+                      placeholder="6-digit code"
+                      className="w-36 min-h-[44px] font-mono"
+                    />
+                    <Button
+                      onClick={handleVerifyEmail}
+                      disabled={busyAction === "verify-email"}
+                      className="min-h-[44px]"
+                    >
+                      Verify
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
-          </TabsContent>
-        </Tabs>
+
+            {error && (
+              <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            {notice && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+                {notice}
+              </div>
+            )}
+
+            {/* Clean Mobile-Scrollable Tab Bar */}
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {(
+                [
+                  { id: "learning", label: "Learning & Live Class", icon: BookOpen },
+                  { id: "report", label: "Career Report", icon: Compass },
+                  { id: "exam", label: "Final Exam (75%)", icon: Award },
+                  { id: "career", label: "Consent & Offers", icon: ShieldCheck },
+                  { id: "refund", label: "Admission & Refund", icon: Clock },
+                ] as const
+              ).map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => changeTab(id)}
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-semibold border transition-colors min-h-[44px] ${
+                    activeTab === id
+                      ? "bg-primary text-white border-primary"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* ==================== TAB 1: LEARNING & LIVE CLASS ==================== */}
+            {activeTab === "learning" && (
+              <div className="space-y-5">
+                {!data?.enrollment || !data.course ? (
+                  <Card className="border-slate-200 bg-white">
+                    <CardContent className="p-6 sm:p-8 space-y-4">
+                      <h2 className="text-xl font-bold text-slate-900">
+                        Start Your 90-Day Career Readiness Cohort
+                      </h2>
+                      <p className="text-sm text-slate-600 max-w-2xl">
+                        {topRecommendedTrack
+                          ? `Based on your psychometric assessment, ${topRecommendedTrack.name} is your strongest career alignment. Compare Plan A (Refundable) and Plan B (Non-Refundable) to join the next 90-day cohort.`
+                          : "Take the free psychometric career assessment first to discover your best-fit track, or explore our 8 canonical career courses directly."}
+                      </p>
+                      <div className="flex flex-wrap gap-3">
+                        <Button
+                          className="min-h-[44px]"
+                          onClick={() =>
+                            navigate(
+                              topRecommendedTrack
+                                ? `/payment?courseId=course-${topRecommendedTrack.trackId}`
+                                : "/payment"
+                            )
+                          }
+                        >
+                          Compare Plan A &amp; Plan B Admission
+                        </Button>
+                        {!data?.fullCareerReport && (
+                          <Button variant="outline" className="min-h-[44px]" asChild>
+                            <Link to="/career-assessment">Take Free Psychometric Assessment</Link>
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <>
+                    {/* Upcoming Live Class (Zoom / Google Meet) */}
+                    {data.cohort?.upcomingLiveClass && (
+                      <Card className="border-slate-200 bg-white">
+                        <CardContent className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                              <Video className="w-3.5 h-3.5" />
+                              Upcoming Live Session ({data.cohort.upcomingLiveClass.platform})
+                            </p>
+                            <h2 className="text-lg font-bold text-slate-900">
+                              {data.cohort.upcomingLiveClass.title}
+                            </h2>
+                            <p className="text-xs text-slate-600 flex items-center gap-2">
+                              <Calendar className="w-3.5 h-3.5" />
+                              {new Date(data.cohort.upcomingLiveClass.scheduledAt).toLocaleString("en-IN")} •
+                              Mentor: {data.cohort.mentorName}
+                            </p>
+                          </div>
+                          <Button
+                            className="min-h-[44px] shrink-0"
+                            disabled={busyAction === `live-${data.cohort.upcomingLiveClass.id}`}
+                            onClick={() =>
+                              handleAttendLiveClass(
+                                data.cohort!.upcomingLiveClass.id,
+                                data.cohort!.upcomingLiveClass.joinUrl
+                              )
+                            }
+                          >
+                            Join {data.cohort.upcomingLiveClass.platform}
+                            <ExternalLink className="w-4 h-4 ml-1.5" />
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Progress Bar */}
+                    <Card className="border-slate-200 bg-white">
+                      <CardContent className="p-5 space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-semibold text-slate-900">
+                            90-Day Coursework Completion
+                          </span>
+                          <span className="font-bold text-primary">
+                            {data.enrollment.learningProgressPercent}%
+                          </span>
+                        </div>
+                        <Progress value={data.enrollment.learningProgressPercent} className="h-2" />
+                        <p className="text-xs text-slate-600">
+                          Complete all modules and assignments to unlock full Final Examination qualification.
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    {/* Recorded Video Player + Module List + Signed PDF Downloads */}
+                    <div className="grid lg:grid-cols-5 gap-5">
+                      <Card className="lg:col-span-3 border-slate-200 bg-white">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Recorded Video Lessons (YouTube)</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {activeVideoUrl && (
+                            <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-900 border border-slate-200">
+                              <iframe
+                                src={activeVideoUrl}
+                                title="Recorded UdaYantu Training Lesson"
+                                className="w-full h-full"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                              />
+                            </div>
+                          )}
+
+                          <div className="space-y-3">
+                            {data.course.modules.map((mod, idx) => (
+                              <div
+                                key={mod.id}
+                                className="rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                              >
+                                <div className="space-y-1">
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    Module {idx + 1}: {mod.title}
+                                  </p>
+                                  <p className="text-xs text-slate-500">{mod.durationMinutes} min video lesson</p>
+                                  <div className="flex flex-wrap gap-3 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveVideoUrl(mod.youtubeUrl)}
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                    >
+                                      <PlayCircle className="w-3.5 h-3.5" />
+                                      Watch Lesson
+                                    </button>
+                                    <a
+                                      href={mod.signedPdfUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:underline"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      {mod.pdfLabel}
+                                    </a>
+                                  </div>
+                                </div>
+
+                                <Button
+                                  size="sm"
+                                  variant={mod.completed ? "outline" : "default"}
+                                  disabled={mod.completed || busyAction === `mod-${mod.id}`}
+                                  onClick={() => handleCompleteModule(mod.id)}
+                                  className="min-h-[40px] shrink-0"
+                                >
+                                  {mod.completed ? (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4 mr-1 text-emerald-600" />
+                                      Completed
+                                    </>
+                                  ) : (
+                                    "Mark Complete"
+                                  )}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Assignments */}
+                      <Card className="lg:col-span-2 border-slate-200 bg-white">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Mandatory Practical Assignments</CardTitle>
+                          <CardDescription>
+                            Required alongside the 75% final exam score for verified eligibility.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {data.course.assignments.map((asg) => (
+                            <div key={asg.id} className="rounded-xl border border-slate-200 p-4 space-y-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-sm font-semibold text-slate-900">{asg.title}</p>
+                                <span className="text-xs font-medium text-slate-500 shrink-0">
+                                  Week {asg.dueWeek}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600 leading-relaxed">{asg.brief}</p>
+                              {asg.submitted ? (
+                                <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  Submitted &amp; Recorded
+                                </p>
+                              ) : (
+                                <div className="space-y-2 pt-1">
+                                  <Input
+                                    value={assignmentNotes[asg.id] || ""}
+                                    onChange={(e) =>
+                                      setAssignmentNotes((prev) => ({
+                                        ...prev,
+                                        [asg.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="Paste summary or work link..."
+                                    className="min-h-[40px] text-xs"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    disabled={busyAction === `asg-${asg.id}`}
+                                    onClick={() => handleSubmitAssignment(asg.id)}
+                                    className="w-full min-h-[40px]"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 mr-1.5" />
+                                    Submit Assignment
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ==================== TAB 2: FULL CAREER REPORT ==================== */}
+            {activeTab === "report" && (
+              <div className="space-y-5">
+                {!data?.fullCareerReport ? (
+                  <Card className="border-slate-200 bg-white">
+                    <CardContent className="p-6 sm:p-8 space-y-4">
+                      <h2 className="text-xl font-bold text-slate-900">
+                        Complete Your Free Psychometric Career Assessment
+                      </h2>
+                      <p className="text-sm text-slate-600">
+                        You have not claimed a psychometric assessment yet. Complete the 11-dimension scenario assessment to unlock your Top 3 canonical career tracks and 90-day learning roadmap.
+                      </p>
+                      <Button asChild className="min-h-[44px]">
+                        <Link to="/career-assessment">Start Career Assessment</Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      {data.fullCareerReport.topTracks.map((track) => (
+                        <Card
+                          key={track.trackId}
+                          className={
+                            track.rank === 1
+                              ? "border-2 border-primary bg-white"
+                              : "border-slate-200 bg-white"
+                          }
+                        >
+                          <CardHeader className="pb-2">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                              Track #{track.rank} • {track.alignmentPercent}% Fit
+                            </p>
+                            <CardTitle className="text-lg">{track.name}</CardTitle>
+                            <CardDescription>{track.hindiName}</CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-3 text-xs text-slate-600">
+                            <p className="text-slate-700">{track.summary}</p>
+                            <div>
+                              <p className="font-semibold text-slate-900 mb-1">Job Families</p>
+                              <p>{track.suitableJobFamilies.join(", ")}</p>
+                            </div>
+                            <p className="text-[11px] bg-slate-50 border border-slate-200 rounded p-2">
+                              <strong>Hiring Context:</strong> {track.jobAvailabilityContext}
+                            </p>
+                            {!data.enrollment && (
+                              <Button
+                                size="sm"
+                                className="w-full min-h-[40px]"
+                                onClick={() => navigate(`/payment?courseId=course-${track.trackId}`)}
+                              >
+                                Explore Recommended Course
+                              </Button>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+
+                    <Card className="border-slate-200 bg-white">
+                      <CardHeader>
+                        <CardTitle className="text-base">Strengths &amp; Development Opportunities</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid sm:grid-cols-2 gap-5 text-sm">
+                        <div>
+                          <h3 className="font-semibold text-slate-900 mb-2">Core Strengths</h3>
+                          <ul className="space-y-1.5 text-slate-700">
+                            {data.fullCareerReport.strengths.map((s) => (
+                              <li key={s} className="flex items-start gap-2">
+                                <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                                <span>{s}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-slate-900 mb-2">Development Opportunities</h3>
+                          <ul className="space-y-1.5 text-slate-700 list-disc pl-5">
+                            {data.fullCareerReport.developmentOpportunities.map((d) => (
+                              <li key={d}>{d}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ==================== TAB 3: FINAL EXAMINATION (75% PASS) ==================== */}
+            {activeTab === "exam" && (
+              <Card className="border-slate-200 bg-white">
+                <CardHeader>
+                  <CardTitle className="text-xl">Final Career-Readiness Examination</CardTitle>
+                  <CardDescription>
+                    Server-graded assessment covering Domain Knowledge, Tools &amp; Practical Skills, Aptitude, and General Communication. Minimum passing score:{" "}
+                    <strong>{data?.finalAssessment.passingThresholdPercent ?? 75}%</strong> plus completed mandatory coursework.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {!data?.enrollment ? (
+                    <p className="text-sm text-slate-600">
+                      Enroll in a 90-day cohort first to unlock the Final Examination.
+                    </p>
+                  ) : data.finalAssessment.qualified ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 space-y-2">
+                      <p className="text-base font-bold text-emerald-900 flex items-center gap-2">
+                        <Award className="w-5 h-5 text-emerald-700" />
+                        Verified Qualification Achieved ({data.eligibility?.finalScorePercent}%)
+                      </p>
+                      <p className="text-sm text-emerald-800">
+                        Verified pass date:{" "}
+                        <strong>
+                          {data.eligibility?.passedAt
+                            ? new Date(data.eligibility.passedAt).toLocaleDateString("en-IN")
+                            : "Recorded"}
+                        </strong>
+                        . You can now manage recruitment consent in the Consent &amp; Offers tab and track your refund timeline in Admission &amp; Refund.
+                      </p>
+                    </div>
+                  ) : !examLoaded ? (
+                    <div className="space-y-4">
+                      {!data.finalAssessment.mandatoryCourseworkComplete && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900">
+                          <strong>Coursework Check:</strong> You can preview and practice the final exam now,
+                          but full verified qualification requires completing all modules and assignments on the
+                          Learning tab alongside scoring at least 75%.
+                        </div>
+                      )}
+                      <Button
+                        size="lg"
+                        disabled={busyAction === "load-exam"}
+                        onClick={handleLoadFinalExam}
+                        className="min-h-[46px]"
+                      >
+                        {busyAction === "load-exam" ? "Loading Questions..." : "Start Final Examination"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      {examQuestions.map((q, idx) => (
+                        <div key={q.id} className="rounded-xl border border-slate-200 p-4 space-y-3">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                            Q{idx + 1} • {q.sectionTitle}
+                          </p>
+                          <p className="text-sm sm:text-base font-semibold text-slate-900">{q.prompt}</p>
+                          <div className="space-y-2">
+                            {q.options.map((opt) => {
+                              const selected = examAnswers[q.id] === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setExamAnswers((prev) => ({ ...prev, [q.id]: opt.id }))
+                                  }
+                                  className={`w-full text-left rounded-lg border px-3.5 py-2.5 text-sm min-h-[44px] transition-colors ${
+                                    selected
+                                      ? "border-primary bg-primary/[0.06] font-medium text-slate-900"
+                                      : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  <span className="font-mono text-xs mr-2 uppercase">{opt.id}.</span>
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      <Button
+                        size="lg"
+                        disabled={busyAction === "submit-exam"}
+                        onClick={handleSubmitFinalExam}
+                        className="w-full sm:w-auto min-h-[48px] px-8 font-semibold"
+                      >
+                        {busyAction === "submit-exam"
+                          ? "Grading on Server..."
+                          : "Submit Final Examination for Grading"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Attempt History */}
+                  {data && data.finalAssessment.attempts.length > 0 && (
+                    <div className="pt-4 border-t border-slate-100 space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-900">Graded Attempt History</h3>
+                      {data.finalAssessment.attempts.map((att) => (
+                        <div key={att.attemptNumber} className="rounded-lg border border-slate-200 p-3.5 text-sm space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-900">
+                              Attempt #{att.attemptNumber} — {att.scorePercent}%
+                            </span>
+                            <span
+                              className={`text-xs font-semibold ${
+                                att.passed ? "text-emerald-700" : "text-amber-700"
+                              }`}
+                            >
+                              {att.passed ? "Qualified (≥75% + Coursework)" : "Not Yet Qualified"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600">{att.reason}</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+                            {att.sectionScores.map((sec) => (
+                              <div key={sec.sectionId} className="rounded bg-slate-50 p-2 border border-slate-100">
+                                <p className="text-slate-500 truncate">{sec.sectionTitle}</p>
+                                <p className="font-semibold text-slate-900">
+                                  {sec.correctCount}/{sec.totalCount} ({sec.scorePercent}%)
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ==================== TAB 4: RECRUITMENT CONSENT & WRITTEN OFFERS ==================== */}
+            {activeTab === "career" && (
+              <div className="space-y-5">
+                <Card className="border-slate-200 bg-white">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Recruitment Visibility Consent</CardTitle>
+                    <CardDescription>
+                      You control whether Admin-approved employers on udayantu.com can discover your verified career-ready profile. Revoking consent hides your profile immediately.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1 text-sm">
+                      <p className="font-semibold text-slate-900">
+                        Employer Profile Visibility:{" "}
+                        {data?.consent.employerVisibilityGranted ? "Enabled" : "Disabled"}
+                      </p>
+                      <p className="text-xs text-slate-600">
+                        Policy {data?.consent.policyVersion} • Only students who pass the 75% Final Examination and enable consent appear in employer candidate searches.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(data?.consent.employerVisibilityGranted)}
+                      disabled={busyAction === "consent"}
+                      onCheckedChange={handleToggleConsent}
+                      aria-label="Toggle employer recruitment visibility consent"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200 bg-white">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Written Job Offers &amp; Tuition Obligation</CardTitle>
+                    <CardDescription>
+                      Shortlists and interviews never trigger tuition fees. A single tuition obligation is created only when you formally accept a written offer below.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {!data?.offers.length ? (
+                      <p className="text-sm text-slate-600">
+                        No written employer offers received yet. Once you pass the 75% final exam and grant recruitment consent, approved employers can invite you for interviews and issue written offers here.
+                      </p>
+                    ) : (
+                      data.offers.map((offer) => (
+                        <div
+                          key={offer.id}
+                          className="rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        >
+                          <div className="space-y-1 text-sm">
+                            <p className="font-bold text-slate-900">
+                              {offer.roleTitle} — {offer.employerName}
+                            </p>
+                            <p className="text-slate-700">
+                              Agreed Annual CTC:{" "}
+                              <strong>₹{offer.agreedCtcInr.toLocaleString("en-IN")}</strong> • Joining:{" "}
+                              {offer.joiningDate}
+                            </p>
+                            <p className="text-xs text-slate-500 uppercase font-semibold">
+                              Status: {offer.status}
+                            </p>
+                          </div>
+                          {offer.status === "issued" && (
+                            <Button
+                              disabled={busyAction === `offer-${offer.id}`}
+                              onClick={() => handleAcceptOffer(offer.id)}
+                              className="min-h-[44px]"
+                            >
+                              Accept Written Offer
+                            </Button>
+                          )}
+                        </div>
+                      ))
+                    )}
+
+                    {data?.tuitionObligation && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm space-y-1.5">
+                        <p className="font-bold text-slate-900">
+                          Authoritative Tuition Obligation ({data.tuitionObligation.agreementVersion})
+                        </p>
+                        <p className="text-slate-700">
+                          Rate: <strong>{data.tuitionObligation.tuitionPercent}% of ₹{data.tuitionObligation.agreedCtcInr.toLocaleString("en-IN")} CTC</strong>{" "}
+                          = <strong>₹{data.tuitionObligation.breakdown.totalPayableInr.toLocaleString("en-IN")} (GST inclusive)</strong>
+                        </p>
+                        <p className="text-xs text-slate-600">
+                          Taxable Base: ₹{data.tuitionObligation.breakdown.taxableBaseInr.toLocaleString("en-IN")} +{" "}
+                          {data.tuitionObligation.breakdown.gstRatePercent}% GST: ₹
+                          {data.tuitionObligation.breakdown.gstAmountInr.toLocaleString("en-IN")} • Admission fee deduction: ₹0 (never adjusted against tuition).
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* ==================== TAB 5: ADMISSION & 120-DAY REFUND CLOCK ==================== */}
+            {activeTab === "refund" && (
+              <Card className="border-slate-200 bg-white">
+                <CardHeader>
+                  <CardTitle className="text-lg">Admission Plan &amp; Refund Lifecycle</CardTitle>
+                  <CardDescription>
+                    Tracked strictly from your server-verified enrollment and final assessment records. Estimated refunds are never shown as completed until bank settlement.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 text-sm">
+                  {!data?.enrollment || !data.refundLifecycle ? (
+                    <p className="text-slate-600">
+                      No active admission record yet. Select Plan A or Plan B on the Admission Plans page to lock your fee and agreement terms.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="grid sm:grid-cols-3 gap-4 rounded-xl bg-slate-50 border border-slate-200 p-4">
+                        <div>
+                          <p className="text-xs text-slate-500">Locked Admission Plan</p>
+                          <p className="font-bold text-slate-900">{data.enrollment.planName}</p>
+                          <p className="text-xs text-slate-600">
+                            ₹{data.enrollment.lockedAdmissionFeeInr.toLocaleString("en-IN")} GST incl. ({data.enrollment.acceptedAgreementVersion})
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">Verified Pass Date (≥75%)</p>
+                          <p className="font-bold text-slate-900">
+                            {data.refundLifecycle.assessmentPassDate
+                              ? new Date(data.refundLifecycle.assessmentPassDate).toLocaleDateString("en-IN")
+                              : "Pending Final Exam Pass"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">120-Day Refund Deadline</p>
+                          <p className="font-bold text-slate-900">
+                            {data.refundLifecycle.refundDeadlineDate
+                              ? new Date(data.refundLifecycle.refundDeadlineDate).toLocaleDateString("en-IN")
+                              : data.refundLifecycle.refundablePlan
+                              ? "Starts upon ≥75% Pass"
+                              : "Not Applicable (Plan B)"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 p-4 space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                          Current Lifecycle Status: {data.refundLifecycle.status.replace(/_/g, " ")}
+                        </p>
+                        <p className="text-slate-700 leading-relaxed">{data.refundLifecycle.explanation}</p>
+                      </div>
+
+                      {data.refundLifecycle.canRequestRefund && (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                          <p className="font-semibold text-emerald-900">
+                            You are eligible to submit your Plan A Admission Refund Request
+                          </p>
+                          <Input
+                            value={refundReason}
+                            onChange={(e) => setRefundReason(e.target.value)}
+                            className="bg-white min-h-[44px]"
+                          />
+                          <Button
+                            disabled={busyAction === "refund"}
+                            onClick={handleRequestRefund}
+                            className="min-h-[44px]"
+                          >
+                            Submit Plan A Refund Request
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </main>
+
+        <Footer />
       </div>
-    </div>
+    </>
   );
-}
+};
+
+export default StudentDashboard;

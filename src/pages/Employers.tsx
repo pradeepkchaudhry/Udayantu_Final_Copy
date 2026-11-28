@@ -66,7 +66,7 @@ const Employers = () => {
             "name": "UdaYantu",
             "url": window.location.origin,
             "logo": `${window.location.origin}/opengraph-image.png`,
-            "description": "Career development platform empowering rural Indian graduates with mentorship, skill training, and 100% job placement guarantee",
+            "description": "Career readiness platform empowering Indian graduates with psychometric career discovery, 90-day structured cohort training, and verified ≥75% assessment readiness",
             "areaServed": "IN",
             "serviceType": "Recruitment Services"
           },

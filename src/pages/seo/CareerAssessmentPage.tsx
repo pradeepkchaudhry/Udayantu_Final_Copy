@@ -1,569 +1,731 @@
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Clock,
   Compass,
-  GraduationCap,
-  RotateCcw,
+  Languages,
+  Lock,
   ShieldCheck,
   Sparkles,
-  Target,
 } from "lucide-react";
+import { SEOHead } from "@/components/SEOHead";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { SEOHead } from "@/components/SEOHead";
-import { AuthModal } from "@/components/AuthModal";
-import { Breadcrumbs } from "@/components/seo/Breadcrumbs";
-import { EditorialTrustBar } from "@/components/seo/EditorialTrustBar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { STATIC_PUBLIC_SEO_ROUTES } from "@/data/seoRoutes";
-import { type DegreeSlug } from "@/data/careerPrograms";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { useAuth } from "@/hooks/useAuth";
 import {
-  normalizeDegreeInput,
-  recommendCareerTracks,
-  type CareerRecommendation,
-  type StudentAssessmentProfile,
-} from "@/utils/careerRecommendationEngine";
-import { createBreadcrumbSchema } from "@/utils/seo";
-import { trackSeoConversion } from "@/lib/seoAnalytics";
+  getAnonymousAssessmentToken,
+  platformApi,
+  setAnonymousAssessmentToken,
+  type FullPsychometricReportDto,
+  type PreviewPsychometricReportDto,
+  type PublicPsychometricQuestionDto,
+} from "@/lib/platformApi";
+import { trackFunnelStage } from "@/lib/funnelAnalytics";
 
-const DEGREE_OPTIONS: Array<{ value: DegreeSlug | "other"; label: string }> = [
-  { value: "ba", label: "BA (Bachelor of Arts)" },
-  { value: "bcom", label: "B.Com (Bachelor of Commerce)" },
-  { value: "bsc", label: "B.Sc (Bachelor of Science)" },
-  { value: "bba", label: "BBA (Business Administration)" },
-  { value: "bca", label: "BCA (Computer Applications)" },
-  { value: "ma", label: "MA (Master of Arts)" },
-  { value: "mcom", label: "M.Com (Master of Commerce)" },
-  { value: "msc", label: "M.Sc (Master of Science)" },
-  { value: "other", label: "Other Graduate Degree" },
-];
+type LangMode = "en" | "bilingual";
 
-const WORK_STYLE_OPTIONS: Array<{
-  value: NonNullable<StudentAssessmentProfile["preferredWorkStyle"]>;
-  title: string;
-  desc: string;
-}> = [
-  {
-    value: "client-facing",
-    title: "Talking to Clients & Building Relationships",
-    desc: "Calls, demos, onboarding, and persuasion",
-  },
-  {
-    value: "process-data",
-    title: "Spreadsheets, Tracking & Organising Processes",
-    desc: "MIS reports, timelines, SLAs, and structured coordination",
-  },
-  {
-    value: "support-problem-solving",
-    title: "Helping Users Solve Problems & Troubleshooting",
-    desc: "Support tickets, software workflows, and clear explanations",
-  },
-  {
-    value: "creative-growth",
-    title: "People, Campaigns & Creative Communication",
-    desc: "Hiring coordination, content, digital campaigns, and branding",
-  },
-];
+const CareerAssessmentPage = () => {
+  const navigate = useNavigate();
+  const { platformUser } = useAuth();
 
-const SITUATIONAL_QUESTIONS = [
-  {
-    id: 1,
-    question:
-      "When working in a college or team project, which role do you naturally enjoy most?",
-    options: [
-      "Convincing others, presenting ideas, and bringing in external partners",
-      "Analysing what went wrong and designing a better user experience",
-      "Making the checklist, tracking deadlines, and keeping data accurate",
-      "Listening to teammates, resolving confusion, and helping everyone succeed",
-    ],
-  },
-  {
-    id: 2,
-    question: "If a customer is frustrated about a delayed service, what is your first instinct?",
-    options: [
-      "Reassure them confidently and turn the conversation into renewed trust",
-      "Investigate the root cause in the workflow so it does not happen again",
-      "Check the order/ticket logs step-by-step and give an accurate timeline",
-      "Acknowledge their frustration calmly and guide them with clear next steps",
-    ],
-  },
-  {
-    id: 3,
-    question: "Which daily task sounds most engaging to you for your first corporate job?",
-    options: [
-      "Speaking with 15–20 new business prospects and tracking a sales pipeline",
-      "Reviewing user feedback, writing feature notes, and testing app flows",
-      "Updating Excel trackers, verifying operations data, and hitting daily SLAs",
-      "Screening candidates, onboarding clients, or guiding customers via chat/call",
-    ],
-  },
-];
-
-export default function CareerAssessmentPage() {
-  const routeMeta = STATIC_PUBLIC_SEO_ROUTES.find(
-    (r) => r.path === "/career-assessment"
-  )!;
-  const [searchParams] = useSearchParams();
-  const initialDegree = normalizeDegreeInput(searchParams.get("degree"));
-
-  const [degree, setDegree] = useState<DegreeSlug | "other">(
-    initialDegree === "other" && !searchParams.get("degree") ? "ba" : initialDegree
-  );
-  const [specialization, setSpecialization] = useState("");
-  const [preferredWorkStyle, setPreferredWorkStyle] =
-    useState<NonNullable<StudentAssessmentProfile["preferredWorkStyle"]>>("client-facing");
-  const [communicationComfort, setCommunicationComfort] = useState(3);
-  const [analyticalComfort, setAnalyticalComfort] = useState(3);
-  const [structuredWorkPreference, setStructuredWorkPreference] = useState(3);
-  const [peopleEmpathy, setPeopleEmpathy] = useState(4);
-  const [persuasionInterest, setPersuasionInterest] = useState(3);
-  const [creativeInterest, setCreativeInterest] = useState(3);
-  const [technicalComfort, setTechnicalComfort] = useState(3);
-  const [psychometricAnswers, setPsychometricAnswers] = useState<Record<number, number>>({});
-  const [recommendations, setRecommendations] = useState<CareerRecommendation[] | null>(null);
-  const [authOpen, setAuthOpen] = useState(false);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<PublicPsychometricQuestionDto[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [langMode, setLangMode] = useState<LangMode>("bilingual");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewPsychometricReportDto | null>(null);
+  const [fullReport, setFullReport] = useState<FullPsychometricReportDto | null>(null);
+  const [started, setStarted] = useState(false);
 
   useEffect(() => {
-    window.scrollTo({ top: 0 });
-    trackSeoConversion("assessment_started", {
-      degree: initialDegree,
-      source_page: "/career-assessment",
-    });
-  }, [initialDegree]);
+    trackFunnelStage("landing_page_viewed");
+    let cancelled = false;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const profile: StudentAssessmentProfile = {
-      degree,
-      specialization: specialization.trim() || undefined,
-      communicationComfort,
-      analyticalComfort,
-      structuredWorkPreference,
-      peopleEmpathy,
-      persuasionInterest,
-      creativeInterest,
-      technicalComfort,
-      preferredWorkStyle,
-      psychometricAnswers,
+    const init = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const existingToken = getAnonymousAssessmentToken();
+        if (existingToken) {
+          try {
+            const existing = await platformApi.getAnonymousAssessment(existingToken);
+            if (!cancelled) {
+              setSessionToken(existing.sessionToken);
+              setQuestions(existing.questions);
+              setAnswers(existing.answers || {});
+              if (existing.preview) {
+                setPreview(existing.preview);
+                setStarted(true);
+                trackFunnelStage("preview_result_viewed");
+              } else if (Object.keys(existing.answers || {}).length > 0) {
+                setStarted(true);
+                const firstUnanswered = existing.questions.findIndex((q) => !existing.answers?.[q.id]);
+                setCurrentIndex(firstUnanswered >= 0 ? firstUnanswered : 0);
+              }
+              // If already signed in as student and preview exists, claim full report seamlessly
+              if (platformUser?.role === "student" && existing.preview) {
+                const claimed = await platformApi.claimAssessment(existing.sessionToken);
+                if (!cancelled && claimed.report) {
+                  setFullReport(claimed.report);
+                }
+              }
+              setLoading(false);
+              return;
+            }
+          } catch {
+            // Session expired or not found on fresh server restart -> start clean
+            setAnonymousAssessmentToken(null);
+          }
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const created = await platformApi.startAnonymousAssessment({
+          utmSource: params.get("utm_source") || undefined,
+          utmCampaign: params.get("utm_campaign") || undefined,
+        });
+        if (!cancelled) {
+          setSessionToken(created.sessionToken);
+          setAnonymousAssessmentToken(created.sessionToken);
+          setQuestions(created.questions);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Could not load the career assessment.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
-    const top3 = recommendCareerTracks(profile, 3);
-    setRecommendations(top3);
+    init();
+    return () => {
+      cancelled = true;
+    };
+  }, [platformUser?.role]);
 
-    trackSeoConversion("assessment_completed", {
-      degree,
-      work_style: preferredWorkStyle,
-    });
-    trackSeoConversion("career_recommendations_shown", {
-      degree,
-      top_track: top3[0]?.program.id,
-      second_track: top3[1]?.program.id,
-      third_track: top3[2]?.program.id,
-    });
+  const answeredCount = Object.keys(answers).length;
+  const totalQuestions = questions.length;
+  const progressPercent = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0;
 
-    setTimeout(() => {
-      document
-        .getElementById("assessment-results")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 100);
+  const remainingMinutes = useMemo(() => {
+    const remainingSeconds = questions
+      .filter((q) => !answers[q.id])
+      .reduce((acc, q) => acc + (q.estimatedSeconds || 25), 0);
+    return Math.max(1, Math.ceil(remainingSeconds / 60));
+  }, [questions, answers]);
+
+  const currentQuestion = questions[currentIndex] ?? null;
+
+  const handleStart = () => {
+    setStarted(true);
+    trackFunnelStage("free_assessment_started");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const breadcrumbs = [
-    { name: "Home", path: "/" },
-    { name: "Careers After Graduation", path: "/careers-after-graduation" },
-    { name: "Career Assessment", path: "/career-assessment" },
-  ];
+  const handleSelectOption = async (questionId: string, optionId: string) => {
+    const nextAnswers = { ...answers, [questionId]: optionId };
+    setAnswers(nextAnswers);
+    setError(null);
+
+    if (sessionToken) {
+      platformApi.saveAnonymousAssessmentProgress(sessionToken, { [questionId]: optionId }).catch(() => {
+        // Non-blocking auto-save
+      });
+    }
+
+    // Smooth auto-advance on non-final questions
+    if (currentIndex < questions.length - 1) {
+      window.setTimeout(() => {
+        setCurrentIndex((prev) => Math.min(questions.length - 1, prev + 1));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 180);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!sessionToken) return;
+    if (answeredCount < totalQuestions) {
+      const firstMissing = questions.findIndex((q) => !answers[q.id]);
+      if (firstMissing >= 0) setCurrentIndex(firstMissing);
+      setError("Please answer all scenario questions so your career fit preview is accurate.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await platformApi.submitAnonymousAssessment(sessionToken, answers);
+      setPreview(res.preview);
+      trackFunnelStage("free_assessment_completed");
+      trackFunnelStage("preview_result_viewed");
+
+      if (platformUser?.role === "student") {
+        const claimed = await platformApi.claimAssessment(sessionToken);
+        if (claimed.report) {
+          setFullReport(claimed.report);
+          trackFunnelStage("course_recommended");
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not submit your assessment.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUnlockFullReport = () => {
+    trackFunnelStage("full_report_cta_clicked");
+    if (platformUser?.role === "student") {
+      navigate("/dashboard?tab=report");
+    } else {
+      navigate("/register?unlockReport=1&returnTo=/dashboard");
+    }
+  };
+
+  const handleRestartFresh = async () => {
+    setAnonymousAssessmentToken(null);
+    setPreview(null);
+    setFullReport(null);
+    setAnswers({});
+    setCurrentIndex(0);
+    setLoading(true);
+    try {
+      const created = await platformApi.startAnonymousAssessment();
+      setSessionToken(created.sessionToken);
+      setAnonymousAssessmentToken(created.sessionToken);
+      setQuestions(created.questions);
+      setStarted(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start a new session.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background overflow-x-hidden">
+    <>
       <SEOHead
-        title={routeMeta.seoTitle}
-        description={routeMeta.metaDescription}
-        keywords={[routeMeta.primaryKeyword, ...routeMeta.secondaryKeywords].join(", ")}
-        canonicalPath={routeMeta.path}
-        structuredData={createBreadcrumbSchema(breadcrumbs)}
+        title="Free Career Discovery & Psychometric Assessment | UdaYantu"
+        description="Discover the career direction that matches your strengths with UdaYantu's free pre-login psychometric assessment for Indian graduates."
+        canonicalPath="/career-assessment"
       />
-      <Navbar />
+      <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+        <Navbar />
 
-      <main className="flex-1 pt-16 md:pt-20">
-        <section className="bg-gradient-to-br from-primary/10 via-background to-secondary/5 border-b border-border py-10 md:py-14">
-          <div className="container mx-auto px-4 max-w-5xl space-y-5">
-            <Breadcrumbs items={breadcrumbs} />
-            <div className="space-y-3 max-w-3xl">
-              <Badge variant="secondary" className="text-xs font-semibold">
-                Free Interactive Tool • No Login Needed to Preview Results
-              </Badge>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-foreground leading-tight">
-                {routeMeta.h1}
-              </h1>
-              <p className="text-base md:text-lg text-muted-foreground leading-relaxed">
-                Apni degree, subject specialization, communication comfort, aur kaam karne ke style ke basis par jaaniye UdaYantu ke 8 verified corporate tracks mein se aapke liye kaun-se top 3 tracks sabse practical hain.
-              </p>
-            </div>
-            <EditorialTrustBar compact />
-          </div>
-        </section>
-
-        <section className="py-10 md:py-14">
-          <div className="container mx-auto px-4 max-w-5xl space-y-10">
-            <form onSubmit={handleSubmit} className="space-y-8">
-              {/* Step 1: Degree & Specialization */}
-              <Card className="border border-border">
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <GraduationCap className="w-5 h-5 text-primary" />
-                    Step 1: Your Degree & Subject Background
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid md:grid-cols-2 gap-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="degree-select">Highest / Current Degree</Label>
-                    <select
-                      id="degree-select"
-                      data-testid="assessment-degree-select"
-                      value={degree}
-                      onChange={(e) => setDegree(e.target.value as DegreeSlug | "other")}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {DEGREE_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="specialization-input">
-                      Main Subject / Specialization (Optional)
-                    </Label>
-                    <Input
-                      id="specialization-input"
-                      data-testid="assessment-specialization-input"
-                      value={specialization}
-                      onChange={(e) => setSpecialization(e.target.value)}
-                      placeholder="e.g., English, Economics, Psychology, Maths, Computer Science"
-                    />
-                  </div>
+        <main className="flex-1 pt-24 pb-16 px-4 sm:px-6">
+          <div className="max-w-3xl mx-auto">
+            {loading ? (
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="py-16 text-center space-y-3">
+                  <div className="h-8 w-8 mx-auto rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                  <p className="text-sm text-slate-600">Preparing your career discovery scenarios...</p>
                 </CardContent>
               </Card>
-
-              {/* Step 2: Preferred Work Style */}
-              <Card className="border border-border">
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Compass className="w-5 h-5 text-secondary" />
-                    Step 2: Which Daily Work Environment Fits You Best?
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid sm:grid-cols-2 gap-3">
-                  {WORK_STYLE_OPTIONS.map((style) => {
-                    const selected = preferredWorkStyle === style.value;
-                    return (
-                      <button
-                        key={style.value}
-                        type="button"
-                        onClick={() => setPreferredWorkStyle(style.value)}
-                        className={`text-left p-4 rounded-xl border-2 transition-all ${
-                          selected
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/40 bg-card"
-                        }`}
-                      >
-                        <p className="font-semibold text-sm text-foreground">{style.title}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{style.desc}</p>
-                      </button>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-
-              {/* Step 3: Self-Rated Workplace Comfort */}
-              <Card className="border border-border">
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Target className="w-5 h-5 text-primary" />
-                    Step 3: Rate Your Comfort & Interest (1 = Low, 5 = High)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid sm:grid-cols-2 gap-5">
-                  {[
-                    {
-                      id: "comm",
-                      label: "Spoken & Written Communication Comfort",
-                      value: communicationComfort,
-                      setter: setCommunicationComfort,
-                    },
-                    {
-                      id: "ana",
-                      label: "Numbers, Spreadsheets & Logical Analysis",
-                      value: analyticalComfort,
-                      setter: setAnalyticalComfort,
-                    },
-                    {
-                      id: "struct",
-                      label: "Structured Process, Checklists & Deadlines",
-                      value: structuredWorkPreference,
-                      setter: setStructuredWorkPreference,
-                    },
-                    {
-                      id: "emp",
-                      label: "Helping People & Patient Listening",
-                      value: peopleEmpathy,
-                      setter: setPeopleEmpathy,
-                    },
-                    {
-                      id: "pers",
-                      label: "Persuasion, Pitching & Achieving Targets",
-                      value: persuasionInterest,
-                      setter: setPersuasionInterest,
-                    },
-                    {
-                      id: "creat",
-                      label: "Content, Campaigns & Creative Ideas",
-                      value: creativeInterest,
-                      setter: setCreativeInterest,
-                    },
-                    {
-                      id: "tech",
-                      label: "Comfort Using Software Apps & Troubleshooting",
-                      value: technicalComfort,
-                      setter: setTechnicalComfort,
-                    },
-                  ].map((slider) => (
-                    <div key={slider.id} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-sm">
-                        <Label htmlFor={`slider-${slider.id}`}>{slider.label}</Label>
-                        <span className="font-bold text-primary">{slider.value}/5</span>
-                      </div>
-                      <input
-                        id={`slider-${slider.id}`}
-                        type="range"
-                        min={1}
-                        max={5}
-                        value={slider.value}
-                        onChange={(e) => slider.setter(Number(e.target.value))}
-                        className="w-full accent-primary cursor-pointer"
-                      />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              {/* Step 4: Quick Situational Psychometric */}
-              <Card className="border border-border">
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-secondary" />
-                    Step 4: Quick Situational Aptitude (3 Questions)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {SITUATIONAL_QUESTIONS.map((q) => (
-                    <div key={q.id} className="space-y-2.5">
-                      <p className="font-semibold text-sm md:text-base text-foreground">
-                        {q.id}. {q.question}
-                      </p>
-                      <div className="grid sm:grid-cols-2 gap-2.5">
-                        {q.options.map((opt, idx) => {
-                          const isSelected = psychometricAnswers[q.id] === idx;
-                          return (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() =>
-                                setPsychometricAnswers((prev) => ({ ...prev, [q.id]: idx }))
-                              }
-                              className={`text-left text-xs md:text-sm p-3 rounded-lg border transition-all ${
-                                isSelected
-                                  ? "border-secondary bg-secondary/10 text-foreground font-medium"
-                                  : "border-border bg-card text-muted-foreground hover:border-primary/40"
-                              }`}
-                            >
-                              {opt}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <div className="flex flex-wrap items-center gap-4">
-                <Button
-                  type="submit"
-                  size="lg"
-                  data-testid="assessment-submit-btn"
-                  className="bg-secondary hover:bg-secondary/90 text-secondary-foreground font-semibold px-6 sm:px-8 w-full sm:w-auto whitespace-normal h-auto py-3.5 text-center"
-                >
-                  <Sparkles className="w-4 h-4 mr-1 flex-shrink-0" />
-                  <span>Show My Top 3 Recommended Career Tracks</span>
-                </Button>
-                {recommendations && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setRecommendations(null);
-                      setPsychometricAnswers({});
-                    }}
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Reset Assessment
-                  </Button>
-                )}
-              </div>
-            </form>
-
-            {/* Results Section */}
-            {recommendations && (
-              <section
-                id="assessment-results"
-                data-testid="assessment-results"
-                className="space-y-6 pt-4 border-t border-border"
-              >
-                <div className="space-y-2">
-                  <Badge className="bg-emerald-600 text-white">
-                    Personalised Career Recommendation Report
-                  </Badge>
-                  <h2 className="text-2xl md:text-3xl font-bold text-foreground">
-                    Your Top 3 Matched UdaYantu Career Tracks
-                  </h2>
-                  <p className="text-sm md:text-base text-muted-foreground">
-                    Based on your{" "}
-                    <strong className="text-foreground">{degree.toUpperCase()}</strong>{" "}
-                    {specialization ? `(${specialization}) ` : ""}
-                    background and self-assessment, these three structured 15-week tracks offer the strongest practical alignment.
+            ) : fullReport ? (
+              /* ==================== 100% FULL AUTHENTICATED CAREER REPORT ==================== */
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-2">
+                    Complete Career Discovery Report • Engine {fullReport.engineVersion}
                   </p>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
+                    Your Top 3 Matched Career Directions
+                  </h1>
+                  <p className="mt-2 text-sm sm:text-base text-slate-600">
+                    Ranked strictly by your work-style preferences, communication tendencies, problem-solving orientation, and foundational readiness across all 11 dimensions.
+                  </p>
+                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-3 border-t border-slate-100 pt-5">
+                    <div>
+                      <p className="text-xs text-slate-500">Top Recommended Track</p>
+                      <p className="text-base font-bold text-slate-900">{fullReport.topTracks[0].name}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Practical Aptitude</p>
+                      <p className="text-base font-bold text-slate-900">{fullReport.aptitudeScorePercent}%</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Foundational English</p>
+                      <p className="text-base font-bold text-slate-900">{fullReport.englishScorePercent}%</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-5">
-                  {recommendations.map((rec, index) => (
+                <div className="space-y-4">
+                  {fullReport.topTracks.map((track) => (
                     <Card
-                      key={rec.program.id}
-                      className={`border-2 flex flex-col justify-between ${
-                        index === 0 ? "border-primary shadow-md" : "border-border"
-                      }`}
+                      key={track.trackId}
+                      className={
+                        track.rank === 1
+                          ? "border-2 border-primary bg-white shadow-sm"
+                          : "border-slate-200 bg-white"
+                      }
                     >
                       <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <Badge
-                            variant={index === 0 ? "default" : "secondary"}
-                            className="text-xs"
-                          >
-                            #{index + 1} Best Fit
-                          </Badge>
-                          <span className="text-sm font-bold text-primary">
-                            {rec.matchScore}% Fit Indicator
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                              Recommendation #{track.rank}
+                            </p>
+                            <CardTitle className="text-xl mt-0.5">
+                              {track.name}{" "}
+                              <span className="text-sm font-normal text-slate-500">({track.hindiName})</span>
+                            </CardTitle>
+                          </div>
+                          <span className="text-lg font-bold text-primary">
+                            {track.alignmentPercent}% Fit
                           </span>
                         </div>
-                        <CardTitle className="text-xl">{rec.program.name}</CardTitle>
-                        <p className="text-xs text-muted-foreground">
-                          {rec.program.duration} • {rec.program.difficulty}
-                        </p>
                       </CardHeader>
+                      <CardContent className="space-y-4 text-sm text-slate-700">
+                        <p>{track.summary}</p>
+                        <p className="text-slate-600">{track.whyItFits}</p>
 
-                      <CardContent className="space-y-4 flex-1 flex flex-col justify-between text-sm">
-                        <div className="space-y-3">
-                          <p className="text-muted-foreground leading-relaxed">
-                            {rec.whyItFitsDegree}
-                          </p>
+                        <div className="grid sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                           <div>
-                            <p className="text-xs font-semibold uppercase tracking-wide text-foreground mb-1.5">
-                              Priority Skills to Build
-                            </p>
-                            <ul className="space-y-1 text-xs text-muted-foreground">
-                              {rec.keySkillsToBuild.map((skill) => (
-                                <li key={skill} className="flex items-start gap-1.5">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                            <h3 className="font-semibold text-slate-900 mb-1.5">Key Skills You Will Build</h3>
+                            <ul className="space-y-1 text-slate-600">
+                              {track.relevantSkills.map((skill) => (
+                                <li key={skill} className="flex items-start gap-2">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                                   <span>{skill}</span>
                                 </li>
                               ))}
                             </ul>
                           </div>
-                          <p className="text-xs text-muted-foreground bg-muted/50 p-2.5 rounded-lg">
-                            {rec.trainingNote}
-                          </p>
+                          <div>
+                            <h3 className="font-semibold text-slate-900 mb-1.5">Suitable Entry-Level Roles</h3>
+                            <ul className="space-y-1 text-slate-600 list-disc pl-4">
+                              {track.suitableJobFamilies.map((role) => (
+                                <li key={role}>{role}</li>
+                              ))}
+                            </ul>
+                          </div>
                         </div>
 
-                        <div className="space-y-2 pt-3 border-t border-border/60">
-                          <Button asChild variant="outline" className="w-full justify-between">
-                            <Link
-                              to={rec.program.path}
-                              onClick={() =>
-                                trackSeoConversion("programme_details_opened", {
-                                  programme: rec.program.id,
-                                  source_page: "/career-assessment",
-                                })
-                              }
-                            >
-                              <span>Explore Full Curriculum</span>
-                              <ArrowRight className="w-4 h-4" />
-                            </Link>
-                          </Button>
+                        <div className="pt-2 border-t border-slate-100">
+                          <h3 className="font-semibold text-slate-900 mb-1.5">Recommended 90-Day Learning Path</h3>
+                          <ol className="space-y-1 text-slate-600 list-decimal pl-5">
+                            {track.recommendedLearningPath.map((step) => (
+                              <li key={step}>{step}</li>
+                            ))}
+                          </ol>
                         </div>
+
+                        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
+                          <strong className="text-slate-800">Market Hiring Context (Shown Separately from Fit):</strong>{" "}
+                          {track.jobAvailabilityContext}
+                        </div>
+
+                        {track.rank === 1 && (
+                          <div className="pt-2 flex flex-wrap gap-3">
+                            <Button
+                              size="lg"
+                              className="w-full sm:w-auto min-h-[44px]"
+                              onClick={() => navigate(`/payment?courseId=course-${track.trackId}`)}
+                            >
+                              Explore My Recommended Course
+                              <ArrowRight className="w-4 h-4 ml-2" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="lg"
+                              className="w-full sm:w-auto min-h-[44px]"
+                              onClick={() => navigate("/dashboard")}
+                            >
+                              Go to Student Dashboard
+                            </Button>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   ))}
                 </div>
 
-                {/* Next Step Conversion Card */}
-                <Card className="border-primary/20 bg-primary/5">
-                  <CardContent className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <p className="font-bold text-lg text-foreground flex items-center gap-2">
-                        <ShieldCheck className="w-5 h-5 text-primary" />
-                        Ready for a full aptitude evaluation & mentor review?
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Register your student account to access the full cohort onboarding, syllabus walkthrough, and written fee/refund details.
+                <Card className="border-slate-200 bg-white">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Strengths, Growth Areas &amp; Work-Style Tendencies</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-5 text-sm">
+                    <div className="grid sm:grid-cols-2 gap-5">
+                      <div>
+                        <h3 className="font-semibold text-slate-900 mb-2">Your Core Strengths</h3>
+                        <ul className="space-y-2 text-slate-700">
+                          {fullReport.strengths.map((s) => (
+                            <li key={s} className="flex items-start gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                              <span>{s}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-slate-900 mb-2">Development Opportunities</h3>
+                        <ul className="space-y-2 text-slate-700">
+                          {fullReport.developmentOpportunities.map((d) => (
+                            <li key={d} className="flex items-start gap-2">
+                              <Compass className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                              <span>{d}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100">
+                      <h3 className="font-semibold text-slate-900 mb-3">11-Dimension Preference Profile</h3>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        {fullReport.dimensionProfiles.map((dim) => (
+                          <div key={dim.dimension} className="rounded-lg border border-slate-200 p-3">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="font-semibold text-slate-900 text-xs">{dim.label}</span>
+                              <span className="text-xs font-medium text-primary">{dim.tendencyLabel}</span>
+                            </div>
+                            <Progress value={dim.scoreOutOf100} className="h-1.5 mb-2" />
+                            <p className="text-xs text-slate-600 leading-relaxed">{dim.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-500 pt-3 border-t border-slate-100">
+                      {fullReport.nonClinicalDisclaimer}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : preview ? (
+              /* ==================== 20% FREE RESULT PREVIEW ==================== */
+              <div className="space-y-6">
+                <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <div className="bg-slate-900 text-white px-6 py-6 sm:px-8">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300 mb-2">
+                      <span className="uppercase tracking-wider font-semibold">
+                        Free {preview.previewSharePercent}% Career Preview Ready
+                      </span>
+                      <span>
+                        {preview.questionsAnswered}/{preview.totalQuestions} Scenarios Completed
+                      </span>
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-bold">
+                      Primary Direction: {preview.primaryTrack.name}
+                    </h1>
+                    <p className="text-sm text-slate-300 mt-1">
+                      {preview.primaryTrack.hindiName} • {preview.primaryTrack.alignmentPercent}% Career Alignment
+                    </p>
+                  </div>
+
+                  <CardContent className="p-6 sm:p-8 space-y-6">
+                    <p className="text-base text-slate-700 leading-relaxed">
+                      {preview.primaryTrack.summary} {preview.primaryTrack.whyItFits}
+                    </p>
+
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <h2 className="text-sm font-semibold text-slate-900 mb-2">
+                          Key Behavioural Tendencies
+                        </h2>
+                        <ul className="space-y-2 text-sm text-slate-700">
+                          {preview.keyBehaviouralInsights.map((insight) => (
+                            <li key={insight} className="flex items-start gap-2">
+                              <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                              <span>{insight}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                        <div>
+                          <h2 className="text-sm font-semibold text-slate-900 mb-1.5">Strengths Snapshot</h2>
+                          <ul className="space-y-1.5 text-sm text-slate-700">
+                            {preview.briefStrengthsSummary.map((str) => (
+                              <li key={str} className="flex items-start gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                                <span>{str}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="pt-2 border-t border-slate-200">
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">
+                            1 Development Opportunity
+                          </h3>
+                          <p className="text-sm text-slate-700">{preview.developmentOpportunity}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Transparent Unlock Box for remaining 80% */}
+                    <div className="rounded-xl border-2 border-primary/25 bg-primary/[0.03] p-5 sm:p-6 space-y-4">
+                      <div className="flex items-start gap-3">
+                        <Lock className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                        <div>
+                          <h2 className="text-lg font-bold text-slate-900">
+                            Unlock Your Complete Career Report (Free Account Required)
+                          </h2>
+                          <p className="text-sm text-slate-600 mt-1">
+                            Your completed answers are safely saved. Create a free student account or sign in to recover this session and view:
+                          </p>
+                        </div>
+                      </div>
+
+                      <ul className="grid sm:grid-cols-2 gap-2 text-sm text-slate-700 pl-1">
+                        {preview.fullReportIncludes.map((item) => (
+                          <li key={item} className="flex items-start gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                        <Button
+                          size="lg"
+                          className="w-full sm:w-auto min-h-[48px] text-base font-semibold"
+                          onClick={handleUnlockFullReport}
+                        >
+                          Unlock My Full Career Report
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          className="w-full sm:w-auto min-h-[48px]"
+                          onClick={() => navigate("/login?returnTo=/dashboard")}
+                        >
+                          Already Registered? Sign In
+                        </Button>
+                      </div>
+
+                      <p className="text-xs text-slate-500">
+                        Discover the career direction that matches your strengths. Build the skills employers need and prepare for opportunities aligned with your interests. Enrollment does not guarantee a job.
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-3 flex-shrink-0">
-                      <Button
-                        size="lg"
-                        className="bg-secondary hover:bg-secondary/90 text-secondary-foreground font-semibold"
-                        onClick={() => {
-                          trackSeoConversion("registration_initiated", {
-                            degree,
-                            top_track: recommendations[0]?.program.id,
-                            source_page: "/career-assessment",
-                          });
-                          setAuthOpen(true);
-                        }}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs text-slate-500">
+                      <span>{preview.nonClinicalDisclaimer}</span>
+                      <button
+                        type="button"
+                        onClick={handleRestartFresh}
+                        className="text-primary font-medium hover:underline"
                       >
-                        Register & Save Recommendations
+                        Start a fresh attempt
+                      </button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : !started ? (
+              /* ==================== WELCOME SCREEN (PRE-LOGIN) ==================== */
+              <Card className="border-slate-200 bg-white shadow-sm">
+                <CardContent className="p-6 sm:p-10 space-y-6">
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                      Free Pre-Login Career Discovery • No Account Needed
+                    </p>
+                    <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 leading-tight">
+                      Discover the career direction that matches your strengths.
+                    </h1>
+                    <p className="text-base text-slate-600 leading-relaxed">
+                      Designed for BA, B.Com, B.Sc, and graduate learners across India. Respond to{" "}
+                      <strong>{totalQuestions} short real-world workplace scenarios</strong> (available in
+                      simple English with Hindi guidance) to explore which of our 8 corporate career tracks
+                      suits your work style.
+                    </p>
+                  </div>
+
+                  <div className="grid sm:grid-cols-3 gap-4 py-4 border-y border-slate-100 text-sm">
+                    <div className="flex items-start gap-2.5">
+                      <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-slate-900">~6 Minutes</p>
+                        <p className="text-xs text-slate-600">Progress auto-saves safely</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <Languages className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-slate-900">English + हिंदी</p>
+                        <p className="text-xs text-slate-600">Accessible, jargon-free scenarios</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-slate-900">Not a School Exam</p>
+                        <p className="text-xs text-slate-600">Shows tendencies, not fixed labels</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-sm text-slate-600">
+                    <p className="font-semibold text-slate-900">What you receive immediately for free (20% Preview):</p>
+                    <ul className="space-y-1.5 list-disc pl-5">
+                      <li>Your primary recommended career track from UdaYantu&apos;s 8 canonical paths</li>
+                      <li>Two key work-style &amp; communication tendency insights</li>
+                      <li>Brief strengths summary and one actionable development opportunity</li>
+                    </ul>
+                  </div>
+
+                  {error && (
+                    <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <Button
+                      size="lg"
+                      className="w-full sm:w-auto min-h-[48px] px-8 text-base font-semibold"
+                      onClick={handleStart}
+                    >
+                      Start Free Assessment
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                    <Button variant="ghost" size="lg" className="w-full sm:w-auto min-h-[48px]" asChild>
+                      <Link to="/courses">Browse All 8 Career Tracks</Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : currentQuestion ? (
+              /* ==================== ACTIVE SCENARIO QUESTION FLOW ==================== */
+              <div className="space-y-5">
+                <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+                    <span className="font-semibold text-slate-900">
+                      Scenario {currentIndex + 1} of {totalQuestions}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex items-center gap-1 text-slate-600">
+                        <Clock className="w-3.5 h-3.5" />
+                        ~{remainingMinutes} min left
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setLangMode((m) => (m === "bilingual" ? "en" : "bilingual"))}
+                        className="inline-flex items-center gap-1 text-primary font-medium hover:underline min-h-[32px]"
+                      >
+                        <Languages className="w-3.5 h-3.5" />
+                        {langMode === "bilingual" ? "English + हिंदी" : "English Only"}
+                      </button>
+                    </div>
+                  </div>
+                  <Progress value={progressPercent} className="h-2" />
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>{currentQuestion.category}</span>
+                    <span>{answeredCount} answered • auto-saved</span>
+                  </div>
+                </div>
+
+                <Card className="border-slate-200 bg-white shadow-sm">
+                  <CardContent className="p-6 sm:p-8 space-y-6">
+                    <div className="space-y-2">
+                      <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-snug">
+                        {currentQuestion.promptEn}
+                      </h2>
+                      {langMode === "bilingual" && (
+                        <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
+                          {currentQuestion.promptHi}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      {currentQuestion.options.map((opt) => {
+                        const isSelected = answers[currentQuestion.id] === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleSelectOption(currentQuestion.id, opt.id)}
+                            className={`w-full text-left rounded-xl border p-4 transition-all min-h-[56px] ${
+                              isSelected
+                                ? "border-primary bg-primary/[0.06] ring-1 ring-primary"
+                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
+                                  isSelected
+                                    ? "border-primary bg-primary text-white"
+                                    : "border-slate-300 text-slate-500"
+                                }`}
+                              >
+                                {isSelected ? "✓" : opt.id.toUpperCase()}
+                              </span>
+                              <div className="space-y-1">
+                                <p className="text-sm sm:text-base font-medium text-slate-900 leading-snug">
+                                  {opt.labelEn}
+                                </p>
+                                {langMode === "bilingual" && (
+                                  <p className="text-xs sm:text-sm text-slate-600">{opt.labelHi}</p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {error && (
+                      <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                        {error}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                      <Button
+                        variant="outline"
+                        className="min-h-[44px]"
+                        disabled={currentIndex === 0}
+                        onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+                      >
+                        <ArrowLeft className="w-4 h-4 mr-1.5" />
+                        Previous
                       </Button>
-                      {degree !== "other" && (
-                        <Button asChild size="lg" variant="outline">
-                          <Link to={`/jobs-after-${degree}`}>
-                            Read {degree.toUpperCase()} Career Guide
-                          </Link>
+
+                      {currentIndex < totalQuestions - 1 ? (
+                        <Button
+                          className="min-h-[44px]"
+                          disabled={!answers[currentQuestion.id]}
+                          onClick={() => setCurrentIndex((i) => Math.min(totalQuestions - 1, i + 1))}
+                        >
+                          Next Scenario
+                          <ArrowRight className="w-4 h-4 ml-1.5" />
+                        </Button>
+                      ) : (
+                        <Button
+                          className="min-h-[44px] px-6 font-semibold"
+                          disabled={submitting || answeredCount < totalQuestions}
+                          onClick={handleSubmit}
+                        >
+                          {submitting ? "Generating Preview..." : "See My Free 20% Preview"}
+                          <ArrowRight className="w-4 h-4 ml-1.5" />
                         </Button>
                       )}
                     </div>
                   </CardContent>
                 </Card>
-              </section>
-            )}
+              </div>
+            ) : null}
           </div>
-        </section>
-      </main>
+        </main>
 
-      <Footer />
-
-      <AuthModal
-        open={authOpen}
-        onOpenChange={setAuthOpen}
-        defaultTab="register"
-      />
-    </div>
+        <Footer />
+      </div>
+    </>
   );
-}
+};
+
+export default CareerAssessmentPage;

@@ -229,7 +229,7 @@ export const Navbar = () => {
 
             {/* Right side actions */}
             <div className="flex items-center gap-2 lg:gap-3">
-              {/* For Employers CTA - Crawlable Link */}
+              {/* For Employers CTA - Crawlable Link inside udayantu.com */}
               {!user && (
                 <Button
                   asChild
@@ -238,7 +238,7 @@ export const Navbar = () => {
                   className="hidden md:inline-flex border-secondary/50 text-secondary hover:bg-secondary hover:text-secondary-foreground font-medium text-sm px-3.5 gap-1.5 transition-all duration-200"
                   data-testid="button-navbar-for-employers"
                 >
-                  <Link to="/employers">
+                  <Link to="/employer">
                     <Building2 className="w-4 h-4" />
                     <span className="hidden xl:inline">For Employers</span>
                     <span className="xl:hidden">Employers</span>
@@ -249,8 +249,24 @@ export const Navbar = () => {
               {/* Auth Buttons & User Menu */}
               {user ? (
                 <>
-                  <div className="hidden lg:flex items-center gap-3">
-                    <UserMenu />
+                  <div className="hidden lg:flex items-center gap-2.5">
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="default"
+                      className="font-semibold text-xs gap-1.5 px-3.5"
+                    >
+                      <Link
+                        to={
+                          user.role === "employer_admin" || user.role === "employer_recruiter"
+                            ? "/employer/dashboard"
+                            : "/dashboard"
+                        }
+                      >
+                        <LayoutDashboard className="w-3.5 h-3.5" />
+                        Dashboard
+                      </Link>
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -269,26 +285,25 @@ export const Navbar = () => {
               ) : (
                 <>
                   <Button
+                    asChild
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      setAuthDefaultTab("login");
-                      setIsAuthOpen(true);
-                    }}
                     className="text-muted-foreground hover:text-foreground hidden md:inline-flex font-medium text-sm"
                     data-testid="button-navbar-sign-in"
                   >
-                    Sign In
+                    <Link to="/login">Sign In</Link>
                   </Button>
                   <Button
+                    asChild
                     variant="secondary"
                     size="sm"
-                    onClick={() => setIsDiscoveryOpen(true)}
                     className="font-extrabold hidden sm:inline-flex shadow-md hover:shadow-lg transition-all duration-200 gap-1.5 bg-secondary text-secondary-foreground"
                     data-testid="button-navbar-find-career"
                   >
-                    <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-                    Find My Best Career
+                    <Link to="/career-assessment">
+                      <Sparkles className="w-4 h-4 text-amber-300" />
+                      Find My Best Career
+                    </Link>
                   </Button>
                   <div className="lg:hidden">
                     <MobileMenu navLinks={navLinks} isLinkActive={isLinkActive} />
@@ -298,21 +313,6 @@ export const Navbar = () => {
             </div>
           </div>
         </div>
-        
-        <AuthModal 
-          open={isAuthOpen} 
-          onOpenChange={setIsAuthOpen}
-          defaultTab={authDefaultTab}
-        />
-
-        {isDiscoveryOpen && (
-          <Suspense fallback={null}>
-            <CareerDiscoveryFlow
-              open={isDiscoveryOpen}
-              onOpenChange={setIsDiscoveryOpen}
-            />
-          </Suspense>
-        )}
       </nav>
     </>
   );

@@ -2,8 +2,9 @@
  * Single Verified Source of Truth for UdaYantu Business Facts,
  * Policies, Editorial Standards, and Program Guardrails.
  *
- * All public pages must reference this module instead of hardcoding
- * unverified statistics, conflicting durations, or contradictory refund windows.
+ * Aligned with the revised 90-day cohort, Plan A / Plan B admission lifecycle,
+ * 75% final assessment qualification rule, 120-calendar-day Plan A refund clock,
+ * and transparent non-guarantee positioning.
  */
 
 export const SITE_CONFIG = {
@@ -16,13 +17,15 @@ export const SITE_CONFIG = {
   twitterHandle: "@UdaYantu",
   serviceArea: "Pan-India (Online & Regional Support for Rural, Tier 2, Tier 3 & Tier 4 Graduates)",
   positioning:
-    "Your degree is your foundation. Practical skills, career guidance and mentorship help you turn it into an employment opportunity.",
+    "Discover the career direction that matches your strengths. Build the skills employers need and prepare for opportunities aligned with your interests.",
 } as const;
 
 export const VERIFIED_PROGRAM_FACTS = {
   totalCareerTracks: 8,
-  standardDurationWeeks: 15,
-  standardDurationLabel: "15 Weeks",
+  standardDurationDays: 90,
+  standardDurationWeeks: 13,
+  standardDurationLabel: "90 Days",
+  passingThresholdPercent: 75,
   eligibleDegrees: [
     "BA",
     "B.Com",
@@ -34,16 +37,16 @@ export const VERIFIED_PROGRAM_FACTS = {
     "M.Sc",
   ] as const,
   /**
-   * Reconciled policy terms matching the written Refund Policy (/refund)
-   * and Terms of Service (/terms).
+   * Authoritative commercial lifecycle rules (exact plan prices are always
+   * fetched live from /v1/public/commercial-plans).
    */
-  placementWindowDays: 90,
-  placementWindowLabel: "90 days after program completion",
+  placementWindowDays: 120,
+  placementWindowLabel: "120 calendar days after passing the final assessment (≥75%)",
   minimumAttendancePercent: 90,
   refundPolicySummary:
-    "Eligible students who complete all 15-week coursework, maintain at least 90% attendance, clear assessments, and actively participate in placement activities qualify for a written placement-support refund review if unplaced within 90 days of program completion. Early withdrawal tiers (7/14/30 days) and non-refundable processing items are disclosed in full on the Refund Policy page.",
+    "Plan A (Refundable Admission) students who complete their 90-day cohort, pass the final assessment with at least 75%, and receive no qualifying written job selection within 120 calendar days of their verified pass date are eligible to request an admission fee refund. Plan B (Non-Refundable Admission) is strictly non-refundable regardless of selection outcome. Admission fees are never adjusted against tuition fees.",
   feeModelSummary:
-    "Students pay an upfront cohort admission/registration fee as specified at enrollment, with pay-after-placement deferred training fee options available for eligible tracks. Exact fee schedules and refund eligibility conditions are shared in writing before payment.",
+    "UdaYantu offers two transparent admission plans (Plan A Refundable and Plan B Non-Refundable, both GST inclusive) covering 90-day cohort training and mentorship. Post-selection tuition applies strictly upon formal student acceptance of a written employer offer (Plan A: 33% of agreed CTC GST inclusive; Plan B: 35% of agreed CTC GST inclusive), and the admission fee is never adjusted against tuition.",
   curriculumBoundaries: {
     teachesCodingOrSoftwareDev: false,
     teachesTallyGstOrAccounting: false,
@@ -83,11 +86,11 @@ export const EDITORIAL_TEAM: Record<"author" | "reviewer", EditorialProfile> = {
 };
 
 export const EDITORIAL_METADATA = {
-  lastReviewedDate: "2026-11-21",
+  lastReviewedDate: "2026-11-27",
   publishedDate: "2026-11-21",
   reviewCadence: "Quarterly",
   editorialPolicySummary:
-    "UdaYantu publishes career guidance for educational clarity. Role descriptions reflect typical Indian entry-level corporate hiring practices; we do not list unverified vacancies, guarantee outcomes without written eligibility compliance, or claim certifications outside our actual curriculum.",
+    "UdaYantu publishes career guidance for educational clarity. Enrollment does not guarantee a job; career readiness depends on structured training, passing the 75% final assessment, and employer selection.",
 } as const;
 
 export const TRUSTWORTHY_EXTERNAL_REFERENCES = [
@@ -113,29 +116,25 @@ export const TRUSTWORTHY_EXTERNAL_REFERENCES = [
   },
 ] as const;
 
-/**
- * Verified platform pillars replacing previously contradictory unverified numbers
- * (e.g., conflicting 98% vs 81%, 5,000+ vs 500+ vs 100+, 120 vs 180 vs 90 days).
- */
 export const VERIFIED_PLATFORM_PILLARS = [
   {
     metric: "8 Tracks",
-    label: "Role-Specific Career Programs",
-    detail: "Structured 15-week corporate readiness curricula",
+    label: "Canonical Career Paths",
+    detail: "Matched via free 11-dimension psychometric career discovery",
   },
   {
-    metric: "15 Weeks",
-    label: "Guided Practical Training",
-    detail: "Weekly live projects, role-plays & mentor reviews",
+    metric: "90 Days",
+    label: "Structured Training Cohort",
+    detail: "Live Zoom/Meet classes, video modules, PDFs & assignments",
   },
   {
-    metric: "1:1",
-    label: "Personal Mentorship",
-    detail: "Resume audits, mock interviews & communication coaching",
+    metric: "≥75%",
+    label: "Verified Readiness Benchmark",
+    detail: "Objective final exam unlocking employer discovery with consent",
   },
   {
-    metric: "Written",
-    label: "Transparent Refund Policy",
-    detail: "Clear eligibility rules published before enrollment",
+    metric: "120 Days",
+    label: "Plan A Refund Protection",
+    detail: "Post-qualification window tracked transparently in your dashboard",
   },
 ] as const;
